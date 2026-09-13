@@ -1,0 +1,4124 @@
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+
+    <title>Unicorn Hunter</title>
+    
+    <style>
+/* ==========================================================================
+   RESET Y CONFIGURACIÓN BASE
+   ========================================================================== */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  /* Mantiene los gestos desactivados para evitar scroll táctil accidental */
+  touch-action: none; 
+}
+
+ body {
+  width: 100%;
+  height: 100%;
+  background-color: #000;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* ==========================================================================
+   CANVAS / ÁREA DE JUEGO (Mantiene proporción 16:9 o responsivo total)
+   ========================================================================== */
+canvas {
+  max-width: 100vw;
+  max-height: 100vh;
+}
+
+/* ==========================================================================
+   CONTROLES TÁCTILES (Mobile UI)
+   ========================================================================== */
+.b {
+  position: absolute;
+  pointer-events: auto;
+  /* clamp(min, preferido, máx) evita que el botón sea gigante en PC o diminuto en movil */
+  width: clamp(50px, 12vw, 80px);
+  height: clamp(50px, 12vw, 80px);
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px dashed rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: #fff;
+  font-size: clamp(18px, 4vw, 28px);
+  font-weight: bold;
+  z-index: 10;
+}
+
+/* Posicionamiento en porcentajes respecto a la pantalla */
+#x { 
+  bottom: 8%; 
+  right: 18%; 
+}
+
+#z { 
+  bottom: 18%; 
+  right: 6%; 
+}
+
+/* Joystick Base */
+#j {
+  position: absolute;
+  width: clamp(80px, 20vw, 130px);
+  height: clamp(80px, 20vw, 130px);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  display: none; /* Se activa mediante JavaScript con 'touch' */
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Joystick Stick */
+#s{
+  position: absolute;
+  width: 50%;
+  height: 50%;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 50%;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* ==========================================================================
+   ADAPTACIONES SEGÚN DISPOSITIVO (Media Queries ligeras)
+   ========================================================================== */
+
+/* Ajustes para móviles en orientación Vertical (Portrait) */
+/* Posicionamiento base para móviles */
+@media (orientation: portrait) {
+  #x { bottom: 6%; right: 24%; }
+  #z { bottom: 14%; right: 6%; }
+    .b {
+    width: clamp(80px, 12vw, 100px);
+    height: clamp(80px, 12vw, 100px);
+  }
+}
+
+</style>
+
+
+
+    
+        <div id="j">
+            <div id="s"></div>
+        </div>
+        <div id="x" class="b">x</div>
+        <div id="z" class="b">z</div>
+
+<script>
+/* --- Archivo: localStorage.js --- */
+let m = Math
+
+const ANCHO = 128*6 //256 * 4
+const ALTO = 128 * 4
+
+const LIMITE_MUNDO= 1024*4
+
+
+function guardarLocalStorage() {
+    const datos = {
+p:JUEGO.puntuacionAlta
+    };
+    localStorage.setItem('UnicornKillerGame', JSON.stringify(datos));
+    //console.log("Datos guardados");
+}
+
+function cargarLocalStorage() {
+    const guardado = localStorage.getItem('UnicornKillerGame');
+    if (guardado) {
+        const datos = JSON.parse(guardado);
+        JUEGO.puntuacionAlta = datos.p
+        //console.log("Datos cargado");
+    }
+}
+ 
+/**
+ * Objeto que contiene los callbacks principales del ciclo de vida del motor.
+ * @typedef {Object} EngineCallbacks
+ * @property {function} [listo] - Se ejecuta una sola vez cuando el motor termina de configurarse.
+ * @property {function} [actualizar] - Se ejecuta en bucle a paso fijo para la lógica y física. Recibe el `dt` (delta time).
+ * @property {function} [renderizar] - Se ejecuta para dibujar en el lienzo. Recibe el `ctx` (CanvasRenderingContext2D).
+ */
+
+/**
+ * Inicializa el motor de videojuegos/renderizado, configurando el canvas y el bucle de juego (Game Loop).
+ * @function EngineName
+ * @param {HTMLElement} contenedor - Elemento HTML (como un div o body) donde se inyectará el canvas.
+ * @param {number} ancho - Ancho base de la resolución del canvas en píxeles.
+ * @param {number} alto - Alto base de la resolución del canvas en píxeles.
+ * @param {EngineCallbacks} funcs - Objeto con las funciones de ciclo de vida (`listo`, `actualizar`, `renderizar`).
+ * @example
+ * // 1. Creamos un contenedor en nuestro HTML (o lo recuperamos del DOM)
+ * const miContenedor = document.getElementById('game-container') || document.body;
+ * * // 2. Definimos las funciones de lógica y dibujo
+ * const configuracionJuego = {
+ * listo: () => {
+ * console.log("¡El juego ha iniciado!");
+ * },
+ * actualizar: (dt) => {
+ * // dt es el tiempo transcurrido (ej. 0.01666 para 60fps)
+ * // Aquí va la lógica: jugador.x += velocidad * dt;
+ * },
+ * renderizar: (ctx) => {
+ * // Aquí se dibuja usando el contexto nativo de Canvas 2D
+ * ctx.fillStyle = '#ff0000';
+ * ctx.fillRect(50, 50, 100, 100);
+ * }
+ * };
+ * * // 3. Encendemos el motor (Resolución de 800x600)
+ * engine(miContenedor, 800, 600, configuracionJuego);
+ */
+
+      //DEF_CAMARA 
+//*********************************************
+// CAMARA
+//*********************************************
+            let camaraX = 0
+            let camaraY = 0
+            let camaraZ = 1
+            let camaraMinX = 0,camaraMaxX =0, camaraMinY =0, camaraMaxY = 0
+ 
+let camaraZobjetivo = 1
+let camaraTiempo = 0
+
+function camaraAsignar(x, y, z) {
+    camaraX = x
+    camaraY = y
+    camaraZ = z
+}
+
+function camaraZoom(n) {
+    camaraZobjetivo = n
+}
+
+function camaraCyclo() {
+    
+    // 2. Interpolar suavemente las posiciones
+    let objetivoX = lerp(camaraX, jugador_x, .2);
+    let objetivoY = lerp(camaraY, jugador_y, .2);
+    
+    // 3. Aplicar los límites del mundo directamente sobre la posición interpolada de la cámara
+  
+    
+    camaraZ = lerp(camaraZ, camaraZobjetivo, .02);
+    camaraX = limitMinMax(objetivoX, 300, LIMITE_MUNDO-300) | 0;
+    camaraY = limitMinMax(objetivoY, 100, LIMITE_MUNDO-200) | 0;
+    
+    
+    
+    
+}
+ //END_DEF 
+  
+ let deltaFijo = 1 / 60
+let canvas, ctx, propiedadSuavizado;
+
+let imagenesTintadas = {};
+
+const crearCanvas = (ancho, alto) => {
+    const c = document.createElement('canvas')
+    c.width = ancho
+    c.height = alto
+    return c
+}
+
+const contexto = (canvas, wrf) => {
+    return wrf ? canvas.getContext('2d', { willReadFrequently: true }) :
+        canvas.getContext('2d');
+}
+
+const redimensionar = () => {
+    const aspecto = ANCHO / ALTO;
+    const anchoVentana = window.innerWidth,
+        altoVentana = window.innerHeight;
+    const nuevoAncho = (anchoVentana / altoVentana >= aspecto) ? altoVentana * aspecto : anchoVentana;
+    const nuevoAlto = (anchoVentana / altoVentana >= aspecto) ? altoVentana : anchoVentana / aspecto;
+    
+    canvas.style.width = `${nuevoAncho}px`;
+    canvas.style.height = `${nuevoAlto}px`;
+};
+
+const culling2d = (x, y) => {
+    return (
+        x > camaraMinX &&
+        x < camaraMaxX &&
+        y > camaraMinY &&
+        y < camaraMaxY
+    );
+}
+
+const actualizarFrustum2D = () => {
+    const invZ = 1 / camaraZ;
+    const medioAncho = (ANCHO * 0.5) * invZ;
+    const medioAlto = (ALTO * 0.5) * invZ;
+    const margen = 128 * invZ;
+    
+    camaraMinX = camaraX - medioAncho - margen;
+    camaraMinY = camaraY - medioAlto - margen;
+    camaraMaxX = camaraX + medioAncho + margen;
+    camaraMaxY = camaraY + medioAlto + margen;
+}
+
+let delta = 1e3 / 60,
+    tActual = tAnterior = 0,
+    huboCambio, siguientePaso,
+    acumulador = 0;
+
+const correr = (cyclo, render, postRender) => {
+    siguientePaso = () => {
+        requestAnimationFrame(siguientePaso);
+        
+        tActual = performance.now();
+        acumulador += m.min(tActual - tAnterior, delta);
+        tAnterior = tActual;
+        huboCambio = 0;
+        
+        while (acumulador >= delta) {
+            
+            actualizarFrustum2D()
+            
+            cyclo?.(.016);
+            
+            huboCambio = 1;
+            acumulador -= delta;
+        }
+        
+        if (huboCambio) {
+            
+            ctx.clearRect(0, 0, ANCHO, ALTO);
+            
+            let z = camaraZ;
+            ctx.setTransform(z, 0, 0, z, (ANCHO / 2) - (camaraX * z), (ALTO / 2) - (camaraY * z));
+            
+            render?.(ctx);
+            
+            ctx.resetTransform();
+            postRender?.(ctx)
+        }
+    };
+    requestAnimationFrame(siguientePaso);
+}
+
+const EngineName = async () => {
+    
+    canvas = crearCanvas(ANCHO, ALTO);
+    ctx = contexto(canvas)
+    
+    if ("imageSmoothingEnabled" in ctx)
+        propiedadSuavizado = "imageSmoothingEnabled";
+    else if ("webkitImageSmoothingEnabled" in ctx)
+        propiedadSuavizado = "webkitImageSmoothingEnabled";
+    else if ("mozImageSmoothingEnabled" in ctx)
+        propiedadSuavizado = "mozImageSmoothingEnabled";
+    else if ("oImageSmoothingEnabled" in ctx)
+        propiedadSuavizado = "oImageSmoothingEnabled";
+    
+    ctx[propiedadSuavizado] = false
+    
+    document.body.appendChild(canvas);
+    
+    window.addEventListener('resize', redimensionar);
+    redimensionar();
+    
+}
+
+const graArad = (gra) => gra * m.PI / 180
+
+const rMinMax = (min, max) => m.random() * (max - min) + min
+
+const limitMinMax = (valor, min, max) => valor < min ? min : (valor > max ? max : valor)
+
+const lerp = (inicio, final, t) => {
+    return (1 - t) * inicio + t * final;
+}
+
+const encapsulado = (render) => {
+    ctx.save()
+    render()
+    ctx.restore()
+}
+
+const alfa = (alfa = 1) => {
+    ctx.globalAlpha = alfa
+}
+
+const _rotTrasCtx = (x, y, r) => {
+    if (x != 0 || y != 0) ctx.translate(x, y)
+    if (r != 0) ctx.rotate(r)
+}
+
+const crearImagen = (ancho, alto, render) => {
+    const tmpC = crearCanvas(ancho, alto)
+    
+    tmpC.image_rendering = 'pixelated';
+    tmpC.image_rendering = 'crisp-edges';
+    
+    ctx = contexto(tmpC)
+    ctx.imageSmoothingEnabled = false;
+    
+    render?.(ctx)
+    
+    ctx = contexto(canvas)
+    
+    return tmpC;
+}
+
+const dibujarSprite = (textura, x, y, w, h, r = 0, px = 0, py = 0, fx = 0, fy = 0, fw = 0, fh = 0, flipX = false, color) => {
+    
+    if (!textura) return
+    
+    let imagen = textura
+    
+    if (color) {
+        
+        let key = (textura.src || textura.id) + (color.id || color)
+        
+        imagen = imagenesTintadas[key] || (imagenesTintadas[key] = crearImagen(textura.width, textura.height, (c) => {
+            let pos = [0, 0, textura.width, textura.height];
+            c.drawImage(tintarImagen(textura, pos, color), ...pos);
+        }));
+    }
+    
+    let nw = (w || imagen.width),
+        nh = (h || imagen.height);
+    
+    ctx.save()
+    
+    _rotTrasCtx(x | 0, y | 0, r);
+    
+    if (flipX) ctx.scale(-1, 1)
+    
+    ctx.drawImage(
+        imagen,
+        (fx), (fy), (fw || imagen.width), (fh || imagen.height),
+        (-nw * px), (-nh * py), (nw), (nh)
+    );
+    
+    ctx.restore()
+}           
+
+/* --- Archivo: Motor.js --- */
+let f32Array = (max) => new Float32Array(max)
+let ui8Array = (max) => new Uint8Array(max)
+
+/*
+//*********************************************
+// FORMAS DE PARTICULAS PIXEL,CRUZ,EQUIS
+//*********************************************
+
+function generarPixel(r, g, b) {
+    const d = new Uint8ClampedArray([r, g, b, 255]);
+    const c = document.createElement('canvas');
+    c.width = c.height = 1;
+    c.getContext('2d').putImageData(new ImageData(d, 1, 1), 0, 0);
+    return c;
+}
+
+function generarCruz(r, g, b) {
+    const s = 3, d = new Uint8ClampedArray(s * s * 4);
+    for (let y = 0; y < s; y++) {
+        for (let x = 0; x < s; x++) {
+            const i = (y * s + x) * 4;
+            // Centro (1,1) o ejes vertical/horizontal
+            if ((x === 1 || y === 1)) { 
+                d[i] = r; d[i+1] = g; d[i+2] = b; d[i+3] = 255;
+            }
+        }
+    }
+    const c = document.createElement('canvas');
+    c.width = c.height = s;
+    c.getContext('2d').putImageData(new ImageData(d, s, s), 0, 0);
+    return c;
+}
+
+function generarEquis(r, g, b) {
+    const s = 3, d = new Uint8ClampedArray(s * s * 4);
+    for (let y = 0; y < s; y++) {
+        for (let x = 0; x < s; x++) {
+            const i = (y * s + x) * 4;
+            // Diagonales: (0,0),(1,1),(2,2) y (2,0),(1,1),(0,2)
+            if (x === y || x + y === 2) {
+                d[i] = r; d[i+1] = g; d[i+2] = b; d[i+3] = 255;
+            }
+        }
+    }
+    const c = document.createElement('canvas');
+    c.width = c.height = s;
+    c.getContext('2d').putImageData(new ImageData(d, s, s), 0, 0);
+    return c;
+}
+*/
+
+//*********************************************
+// GRADIENTES LINEALES
+//*********************************************
+function gradienteLineal(x1, y1, x2, y2, colores) {
+    const grad = ctx.createLinearGradient(x1, y1, x2, y2);
+    
+  //  colores = [0,'yellow',1,'red']
+    for (let i = 0; i < colores.length; i += 2) {
+        grad.addColorStop(colores[i], colores[i + 1]);
+    }
+    
+    grad.id = colores.toString()
+    return grad
+}
+
+
+//*********************************************
+// TINTEADOR DE IMAGENES
+//*********************************************
+const offscreen = document.createElement('canvas');
+const offCtx = offscreen.getContext('2d');
+  
+function tintarImagen(img,frame,color='#000') {
+  // 1. Crear canvas auxiliar en memoria
+  let ancho = frame[2], alto = frame[3]
+  offscreen.width = ancho;
+  offscreen.height = alto;
+  
+offCtx.imageSmoothingEnabled=false
+  // 2. Dibujar la imagen PNG/SVG original
+  offCtx.drawImage(img, ...frame,0, 0, ancho, alto);
+  
+  // 3. Configurar modo para restringir el tinte a la forma visible
+  offCtx.globalCompositeOperation = 'multiply';
+  
+  // 4. Pintar el tinte
+  offCtx.fillStyle = color//'#ff0f'//'rgba(59, 130, 246, 1)';
+  offCtx.fillRect(0, 0, ancho, alto);
+  
+  
+  
+  
+  offCtx.globalCompositeOperation = 'destination-atop';
+  
+ offCtx.drawImage(img, ...frame,0, 0, ancho, alto);
+  // 5. Renderizar en el canvas principal en la posición deseada
+  return offscreen//ctx.drawImage(offscreen, x, y);
+}
+
+//*********************************************
+// COLICIONES AABB CIRCULOS Y RECTANGULOS
+// CONVENCIÓN DE ÍNDICES:
+// [0]: x
+// [1]: y
+// [2]: radio (0 si es rectángulo)
+// [3]: ancho (0 si es círculo)
+// [4]: alto  (0 si es círculo)
+//*********************************************
+
+const RESPUESTA_COLISION = [0, 0]; // Bufer de respuesta de colicion global
+
+function colision(a, b, sol) {
+  // Aceptamos un array 'sol' preasignado [0, 0] para evitar Garbage Collection
+  sol[0] = 0; 
+  sol[1] = 0;
+
+  const p1x = a[0], p1y = a[1], r1 = a[2], w1 = a[3], h1 = a[4];
+  const p2x = b[0], p2y = b[1], r2 = b[2], w2 = b[3], h2 = b[4];
+
+  // 1. CIRCULO - CIRCULO
+  if (r1 > 0 && r2 > 0) {
+    const dx = p1x - p2x;
+    const dy = p1y - p2y;
+    const dist = m.hypot(dx, dy) || 1;
+    const overlap = (r1 + r2) - dist;
+
+    if (overlap > 0) {
+      sol[0] = (dx / dist) * overlap;
+      sol[1] = (dy / dist) * overlap;
+      return true;
+    }
+    return false;
+  }
+
+  // 2. CIRCULO - RECTANGULO
+  if (r1 > 0 || r2 > 0) {
+    const isA = r1 > 0;
+    const cx = isA ? p1x : p2x;
+    const cy = isA ? p1y : p2y;
+    const rad = isA ? r1 : r2;
+
+    const rx = isA ? p2x : p1x;
+    const ry = isA ? p2y : p1y;
+    const rw = isA ? w2 : w1;
+    const rh = isA ? h2 : h1;
+
+    const px = m.max(rx, m.min(cx, rx + rw));
+    const py = m.max(ry, m.min(cy, ry + rh));
+
+    const dx = cx - px;
+    const dy = cy - py;
+    const dist = m.hypot(dx, dy) || 1;
+    const overlap = rad - dist;
+
+    if (overlap > 0) {
+      const factor = (isA ? 1 : -1) * (overlap / dist);
+      sol[0] = dx * factor;
+      sol[1] = dy * factor;
+      return true;
+    }
+    return false;
+  }
+
+  // 3. RECTANGULO - RECTANGULO (AABB)
+  const overlapX1 = p1x + w1 - p2x;
+  const overlapX2 = p2x + w2 - p1x;
+  const overlapY1 = p1y + h1 - p2y;
+  const overlapY2 = p2y + h2 - p1y;
+
+  if (overlapX1 > 0 && overlapX2 > 0 && overlapY1 > 0 && overlapY2 > 0) {
+    if (m.min(overlapX1, overlapX2) < m.min(overlapY1, overlapY2)) {
+      sol[0] = overlapX1 < overlapX2 ? -overlapX1 : overlapX2;
+    } else {
+      sol[1] = overlapY1 < overlapY2 ? -overlapY1 : overlapY2;
+    }
+    return true;
+  }
+
+  return false;
+}
+
+
+
+//*********************************************
+//RENDERIZADOR GLOBAL CON ORDENAMIENTO Z
+//*********************************************
+
+const MAX_ENTIDADES = 50000;
+
+// Estructura SoA para el Renderizador
+const render_type = new Uint8Array(MAX_ENTIDADES); // ID del tipo (0: Árbol, 1: Unicornio, 2: Jugador)
+const render_index = new Uint16Array(MAX_ENTIDADES); // Índice dentro de su propio SoA
+const render_z = new Float32Array(MAX_ENTIDADES); // Valor Y
+
+// Arreglo de índices para ordenar sin mover los TypedArrays
+const render_order = new Uint16Array(MAX_ENTIDADES);
+for (let i = 0; i < MAX_ENTIDADES; i++) render_order[i] = i;
+
+let numEntidadesRender = 0;
+
+// Constantes de Tipo
+const TIPO_ARBOL = 0;
+const TIPO_UNICORNIO = 1;
+const TIPO_JUGADOR = 2;
+const TIPO_PROYECTIL = 3;
+const TIPO_PARTICULA = 4;
+const TIPO_PASTO = 5;
+
+function reiniciarListaRender() {
+  numEntidadesRender = 0;
+}
+
+function registrarRender(tipo, indice, z) {
+  if (numEntidadesRender >= MAX_ENTIDADES) return;
+  
+  let i = numEntidadesRender;
+  render_type[i] = tipo;
+  render_index[i] = indice;
+  render_z[i] = z;
+  
+  // SOLUCIÓN: Reasignar el índice en orden secuencial cada vez que se registra
+  render_order[i] = i;
+  
+  numEntidadesRender++;
+}
+
+function renderizarTodo(ctx) {
+  // 1. Crear sub-vista de los elementos activos en este frame
+  let activos = render_order.subarray(0, numEntidadesRender);
+  
+  // 2. Ordenar por profundidad (Z) de menor a mayor
+  activos.sort((a, b) => render_z[a] - render_z[b]);
+  
+ 
+  //DIBUJAR SOMBRAS 
+  alfa(0.5)
+  for (let k = 0; k < numEntidadesRender; k++) {
+    
+    let id = activos[k];
+    let tipo = render_type[id];
+    let i = render_index[id];
+
+
+
+    switch (tipo) {
+      case TIPO_ARBOL:
+        arbolSombra(i);
+        break;
+      case TIPO_UNICORNIO:
+        unicornioSombra(i);
+        break;
+        case TIPO_PASTO:
+  pastoSombra(i)
+break;
+      case TIPO_JUGADOR:
+        jugadorSombra(ctx);
+        break;
+    }
+  }
+  alfa()
+ 
+  // 3. Dibujar en orden
+  for (let k = 0; k < numEntidadesRender; k++) {
+    
+    let id = activos[k];
+    let tipo = render_type[id];
+    let i = render_index[id];
+
+    switch (tipo) {
+      case TIPO_ARBOL:
+        arbolRender(i);
+        break;
+      case TIPO_UNICORNIO:
+        unicornioRender(i);
+        break;
+        case TIPO_PROYECTIL:
+          proyectilRender(i)
+          break
+          case TIPO_PARTICULA:
+  particulaRender(i)
+break;
+case TIPO_PASTO:
+  pastoRender(i)
+break;
+      case TIPO_JUGADOR:
+        jugadorRender(ctx);
+        break;
+    }
+  }
+  
+}
+
+/* --- Archivo: mats.js --- */
+entre2puntos = (a, b, c) => a <= b && b <= c || a >= b && b >= c;
+
+// Retorna true si la distancia entre (x1, y1) y (x2, y2) es menor o igual al umbral
+/*
+cerca = (x1, y1, x2, y2, u) => (x1 - x2) ** 2 + (y1 - y2) ** 2 <= u * u;
+
+
+const cerca2 = (x1, y1, x2, y2, u) => {
+  const dx = x1 - x2;
+  const dy = y1 - y2;
+  return dx * dx + dy * dy <= u * u;
+};
+*/
+
+distCuadrada = (x1, y1, x2, y2, u) => (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2) <= u*u;
+
+
+
+function distCuadrad(origenX, origenY, objetivoX, objetivoY) {
+  const dx = objetivoX - origenX;
+  const dy = objetivoY - origenY;
+  const distCuadrada = (dx * dx) + (dy * dy);
+  
+  // 100 al cuadrado es 10000
+  return distCuadrada <= 30000;
+}
+
+function Atan2Polinomial(dy, dx) {
+  if (dx === 0 && dy === 0) return 0;
+
+  // Normalización rápida basada en el cuadrante
+  const absX = m.abs(dx);
+  const absY = m.abs(dy);
+  const a = m.min(absX, absY) / m.max(absX, absY);
+  const s = a * a;
+
+  // Aproximación polinomial de bajo consumo de CPU
+  let r = ((-0.0464964749 * s + 0.15931422) * s - 0.327622764) * s * a + a;
+
+  if (absY > absX) r = 1.57079632679 - r; // 1.57079... es PI / 2
+  if (dx < 0) r = 3.14159265359 - r;       // PI
+  if (dy < 0) r = -r;
+
+  return r; // Devuelve el ángulo en radianes
+}
+
+function mirarHacia(origenX, origenY, objetivoX, objetivoY) {
+  
+  // Devuelve el ángulo en radianes
+  return Atan2Polinomial(objetivoY - origenY, objetivoX - origenX);//m.atan2(objetivoY - origenY, objetivoX - origenX);
+}
+
+
+/* --- Archivo: audio.js --- */
+
+        audioCtx = null;
+      
+  // tipoRuido: 0 = Oscilador (Tono/Láser), 1 = Ruido Blanco (Escopeta/Explosión)
+  
+  //esRuido, fInicio, fFin, dur, vol
+  
+
+const SONIDO_DESCONTAMINADOR = [0, 200, 500, 1, 0.8];
+
+const SONIDO_ESCOPETA = [1, 2000, 800, 1.5, 0.8];
+
+const SONIDO_ARBOL_CONT  = [0, 100, 400, 1, 0.8];
+
+//const SONIDO_ESCOPE= [1, 5000, 5000, .1, 0.8];
+
+const SONIDO_MUERTE = [1, 1000, 5000, .3, 0.8];
+
+
+const SONIDO_GOLPE  = [1, 5000, 5000, .1, 0.8];
+
+const SONIDO_MISIL_MAGICO  = [0, 800, 5, .5, 0.8];
+
+
+     function iniciarAudio() {
+        if (!audioCtx) {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          audioCtx = new AudioContext();
+        }
+      }
+
+// Cadena de notas (16 caracteres = 16 pasos del compás)
+// '0' es la nota base (Do), '2' (Re), '4' (Mi), '5' (Fa), '7' (Sol), '9' (La), etc.
+
+
+
+const MELODIA = "..00..11..22..11..33..66..44..55..88..99..77......";
+const BATERIA = "XX..ZZ..XX..ZZ..ZZ..XX..XX..ZZ..XX..XX..ZZ..ZZ..XX..ZZ..ZZ..ZZ.XX..";
+
+
+// 1. DICCIONARIO DE NOTAS (Mapeo de caracteres a frecuencias de C4 a B5)
+const NOTAS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const m2f = c => c && c !== '.' && c !== 'X' && c !== 'Z' 
+  ? 261.63 * (2 ** (NOTAS.indexOf(c) / 12)) 
+  : 0;
+
+// 2. FUNCIÓN SINTETIZADORA GENÉRICA (Audio API)
+// Recibe un array: [esRuido, freqInicial, freqFinal, duracion, volumen]
+const repSonido = s => {
+  if (!audioCtx) return;
+  if (audioCtx.state === 'suspended') {
+  audioCtx.resume();
+}
+  const t = audioCtx.currentTime,
+        [esRuido, f1, f2, dur, vol] = s,
+        g = audioCtx.createGain();
+
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.01, t + dur);
+  g.connect(audioCtx.destination);
+
+  if (esRuido) {
+    const sr = audioCtx.sampleRate,
+          b = audioCtx.createBuffer(1, sr * dur, sr),
+          d = b.getChannelData(0),
+          r = audioCtx.createBufferSource(),
+          f = audioCtx.createBiquadFilter();
+
+    for (let i = 0; i < sr * dur; i++) d[i] = m.random() * 2 - 1;
+    r.buffer = b;
+    f.type = 'lowpass';
+    f.frequency.setValueAtTime(f1, t);
+    f.frequency.exponentialRampToValueAtTime(f2, t + dur);
+
+    r.connect(f);
+    f.connect(g);
+    r.start(t);
+    r.stop(t + dur);
+  } else {
+    const osc = audioCtx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(f1, t);
+    osc.frequency.exponentialRampToValueAtTime(f2, t + dur);
+
+    osc.connect(g);
+    osc.start(t);
+    osc.stop(t + dur);
+  }
+};
+
+// 3. SECUENCIADOR DE MÚSICA BASS/DRUM
+function iniciarMusica(leadStr, drumStr, bpm = 60) {
+  let paso = 0;
+  const ms = (60 / bpm / 4) * 1000;
+
+  setInterval(() => {
+    const noteChar = leadStr[paso];
+    const drumChar = drumStr[paso];
+
+    // Reproducir nota de sintetizador si no es silencio
+    const freq = m2f(noteChar);
+    if (freq) repSonido([0, freq, freq * 0.95, 0.12, 0.2]);
+
+    // Batería
+    if (drumChar === 'X') repSonido([1, 800, 30, 0.15, 0.7]);  // Bombo
+    if (drumChar === 'Z') repSonido([1, 8000, 2000, 0.05, 0.2]); // Hi-Hat
+
+    paso = (paso + 1) % leadStr.length;
+  }, ms);
+}
+
+/* --- Archivo: controles.js --- */
+const INPUT = {
+    axisX: 0,axisY: 0,a:0,b:0,
+    joyId: null, // Guardamos solo el ID del toque del joystick
+    startPos: null,
+    
+    init() {
+        const base = document.getElementById('j');
+        const stick = document.getElementById('s');
+        const screenMid = window.innerWidth / 2;
+     
+       const maxDist = 45;
+
+        // Escucha global para ahorrar listeners
+        document.addEventListener('pointerdown', e => {
+            if (e.target.closest('.action-btn')) return;
+            
+            if (e.clientX < screenMid && INPUT.joyId === null) {
+                INPUT.joyId = e.pointerId;
+                INPUT.startPos = { x: e.clientX, y: e.clientY };
+                base.style.display = 'block';
+                base.style.left = `${e.clientX}px`;
+                base.style.top = `${e.clientY}px`;
+                stick.style.transform = 'translate(-50%, -50%)';
+            }
+        });
+
+        document.addEventListener('pointermove', e => {
+            if (INPUT.joyId === e.pointerId && INPUT.startPos) {
+                let dx = m.max(-maxDist, m.min(maxDist, e.clientX - INPUT.startPos.x));
+                
+                let dy = m.max(-maxDist, m.min(maxDist, e.clientY - INPUT.startPos.y));
+                
+                stick.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`; // Simplificado a solo eje X
+                INPUT.axisX = dx / maxDist;
+                INPUT.axisY = dy / maxDist;
+            }
+        });
+
+        const endTrack = e => {
+            if (INPUT.joyId === e.pointerId) {
+                INPUT.joyId = null;
+                INPUT.startPos = null;
+                INPUT.axisX = 0;
+                INPUT.axisY = 0;
+                base.style.display = 'none';
+                
+            }
+        };
+
+        document.addEventListener('pointerup', endTrack);
+        document.addEventListener('pointercancel', endTrack);
+
+        // Botones directos con funciones en línea
+        document.getElementById('x').onpointerdown = e => { e.preventDefault(); INPUT.onActionX?.(); };
+      
+        
+      
+        document.getElementById('z').onpointerdown = e => { e.preventDefault(); INPUT.onActionZ?.(); };
+        
+        
+    }
+};
+INPUT.init();
+
+/* --- Archivo: particulas.js --- */
+//*********************************************
+// PARTICULAS ESTRUCTURA SOA (Structure of Arrays)
+//*********************************************
+const MAX_PARTICULAS = 20000;
+
+const particulas_x = f32Array(MAX_PARTICULAS);
+const particulas_y = f32Array(MAX_PARTICULAS);
+const particulas_vx = f32Array(MAX_PARTICULAS);
+const particulas_vy = f32Array(MAX_PARTICULAS);
+const particulas_vida = f32Array(MAX_PARTICULAS);
+const particulas_color = []
+const particulas_tamaño = f32Array(MAX_PARTICULAS);
+const particulas_tipo = ui8Array(MAX_PARTICULAS)
+
+
+const TIPO_PARTICULA_PIXEL = 0
+const TIPO_PARTICULA_ONDA = 1
+const TIPO_PARTICULA_FRENTE = 2
+const TIPO_PARTICULA_LLUVIA = 3
+
+let numParticulas = 0;
+
+function particulasCrear(x, y, vx, vy, color, vida, tamaño = 1,tipo) {
+    if (numParticulas >= MAX_PARTICULAS) return;
+    
+    let i = numParticulas++;
+    
+    particulas_x[i] = x;
+    particulas_y[i] = y;
+    particulas_vx[i] = vx;
+    particulas_vy[i] = vy;
+    particulas_color[i] = color;
+    particulas_vida[i] = vida;
+    particulas_tamaño[i] = tamaño * 4;
+    particulas_tipo[i] = tipo | TIPO_PARTICULA_PIXEL
+
+
+    
+}
+
+
+
+function eliminarParticulas(i) {
+    const ultimo = numParticulas - 1; // ← CORREGIDO: usar numParticulas
+    
+    if (i !== ultimo) {
+        // Mover los datos del último elemento a la posición i
+        particulas_x[i] = particulas_x[ultimo];
+        particulas_y[i] = particulas_y[ultimo];
+        particulas_vx[i] = particulas_vx[ultimo];
+        particulas_vy[i] = particulas_vy[ultimo];
+        particulas_color[i] = particulas_color[ultimo];
+        particulas_vida[i] = particulas_vida[ultimo];
+        particulas_tamaño[i] = particulas_tamaño[ultimo];
+        
+        particulas_tipo[i] = particulas_tipo[ultimo]
+   
+   
+    }
+    
+    numParticulas--; // ← CORREGIDO: usar numParticulas
+}
+function particulasCyclo(dt) {
+    for (let i = 0; i < numParticulas; i++) {
+            particulas_x[i] += particulas_vx[i];
+        particulas_y[i] += particulas_vy[i]
+particulas_vida[i]--
+            if (particulas_vida[i] <= 0 || !culling2d(particulas_x[i],particulas_y[i])) eliminarParticulas(i),i--;
+    }
+}
+
+function particulaRender(i) {
+    if (particulas_vida[i] > 0) {
+        
+        
+    if(particulas_tipo[i]===TIPO_PARTICULA_ONDA) {
+    alfa(1)
+  
+  let progreso = particulas_vida[i]/60; // De 1 (inicio) a 0 (final)
+  let escala = (1-progreso) * particulas_tamaño[i];
+
+
+alfa(progreso); // Aplica desvanecimiento
+
+dibujarSprite(atlasImagen,particulas_x[i],particulas_y[i],17*escala,11*escala,0,.5,.5,...atlasDatos.onda,0,particulas_color[i])
+
+     alfa()
+        
+    } else {
+  
+       
+        
+    
+      ctx.fillStyle = particulas_color[i];
+      ctx.fillRect(
+   m.floor(particulas_x[i]),
+    m.floor(particulas_y[i]),
+    particulas_tamaño[i],
+    particulas_tamaño[i]*(particulas_tipo[i]===TIPO_PARTICULA_LLUVIA ? 3:1)
+ 
+)
+    
+    }
+    }
+}
+
+function ParticulasEscopeta(x, y,angulo) {
+            // Perdigones metálicos/fuego
+            for (let i = 0; i < 12; i++) {
+                let angle = (m.random() - 0.5) * 1.5 + angulo; // Dispara hacia arriba con dispersión
+                let speed = ((jugador_vx/4)*jugador_direccion) + (2 + m.random() * 4);
+                let color = m.random() > 0.3 ? '#ffcc00' : '#ff3300';
+              particulasCrear(x, y, m.cos(angle) * speed, m.sin(angle) * speed, color, 12 + m.random() * 8, 1)
+                
+                
+            }
+            // Humo
+            for (let i = 0; i < 6; i++) {
+               particulasCrear(
+    x, y,
+    ((jugador_vx / 2)) + (m.random() - 0.5) * 1.5,
+    (m.random() - 0.5) * 1.5,
+    '#555566',
+    20 + m.random() * 10,
+    2
+);
+            }
+        }
+             
+
+function explosionMisilUnicornio(x, y, count = 30) {
+            const colors = ['#ff77a8', '#ffcc00', '#00e756', '#29adff', '#fff1e8', '#ff004d'];
+            for (let i = 0; i < count; i++) {
+                let angle = m.random() * m.PI * 2;
+                let speed = 0.5 + m.random() * 2.5;
+                let color = colors[m.floor(m.random() * colors.length)];
+                particulasCrear(
+    x, y,
+    m.cos(angle) * speed,
+    m.sin(angle) * speed,
+    color,
+    20 + m.random() * 20,
+    m.random() > 0.5 ? 2 : 1
+);
+            }
+        }
+   
+function efectoDescontaminacion(x,y) {
+    for (let n = 0; n < 32; n++) {
+  particulasCrear(
+    x + (m.random() - 0.5) * 20, y + (m.random() - 0.5) * 20 - 16,
+    (m.random() - 0.5) * 1.5,
+    -(m.random() * 2),
+    '#0a0',
+    20 + m.random() * 10,
+    2, TIPO_PARTICULA_FRENTE
+  )
+}
+    
+  }
+  
+
+function particulasArbolContaminado(x, y, count = 1,vel) {
+         
+        count = 2 + (vel/256)
+        
+            for (let i = 0; i < count; i++) {
+                let angle = m.random() * m.PI * 2;
+                let speed = 2 + (vel/256);
+                let color = coloresArcoiris[m.floor(m.random() * coloresArcoiris.length)];
+                particulasCrear(
+    x+(m.random() - 0.5) * 20, y+(m.random() - 0.5) * 20,
+    m.cos(angle) * speed,
+    m.sin(angle) * speed,
+    color,
+    20 + m.random() * 20,
+    m.random() > 0.5 ? 2 : 1
+);
+            }
+     
+        }
+        
+  
+  function efectoOnda(x, y, escala=1,color) {
+  
+  particulasCrear(
+       x, y,
+       0, 0,
+       color,
+       30,
+       escala,
+       TIPO_PARTICULA_ONDA
+   );
+}      
+        
+           
+        
+        
+        
+        function invocarEstelaArcoiris(x, y, count=1) {
+    for (let i = 0; i < count; i++) {
+        let angle = m.random() * m.PI * 4;
+        let speed = 0.5 + m.random() * 0.5;
+        let color = coloresArcoiris[m.floor(m.random() * coloresArcoiris.length)];
+        particulasCrear(
+            x+(m.random() - 0.5) * 20, y+(m.random() - 0.5) * 20,
+            m.cos(angle) * speed,
+            m.sin(angle) * speed,
+            color,
+            20 + m.random() * 80,
+            m.random() > 0.5 ? 1 : 1
+        );
+    }
+}
+
+
+function efectoDescontaminacionJugador() {
+    
+    
+    //ctxManchas.fillRect(jugador_x,jugador_y,90,90)
+   ctxManchas.save() 
+   ctxManchas.beginPath() 
+   let radio = 200
+   ctxManchas.fillStyle = '#0000'  
+   ctxManchas.arc(jugador_x,jugador_y,radio,0,360)
+   ctxManchas.fill()
+    
+    ctxManchas.clip('evenodd')
+ 
+ctxManchas.clearRect(jugador_x-radio,jugador_y-radio,radio*2,radio*2)
+  
+  ctxManchas.restore()  
+    
+    
+    efectoOnda(jugador_x, jugador_y, 3,'#696')
+    for (let i = 0; i < 25; i++) {
+                let angle = m.random() * m.PI * 2;
+                let speed = 0.5 + m.random() * 2.5;
+                particulasCrear(
+    jugador_x, jugador_y,
+    m.cos(angle) * speed,
+    m.sin(angle) * speed,
+    '#6f6',
+    20 + m.random() * 20,
+    m.random() > 0.5 ? 2 : 1
+);
+            }
+
+}
+
+/* --- Archivo: arbol.js --- */
+//*********************************************
+// ARBOL ESTRUCTURA SOA (Structure of Arrays) - OPTIMIZADO
+//*********************************************
+const MAX_ARBOLES = 500;
+
+let arbol_tick = 0;
+let arbol_x = f32Array(MAX_ARBOLES);
+let arbol_y = f32Array(MAX_ARBOLES);
+let arbol_radio = 18;
+let arbol_alfa = f32Array(MAX_ARBOLES);
+let arbol_angulo = f32Array(MAX_ARBOLES);
+let arbol_anguloFactor = f32Array(MAX_ARBOLES);
+
+let arbol_activo = ui8Array(MAX_ARBOLES)
+
+let arbol_tinta = ui8Array(MAX_ARBOLES);
+let arbol_contaminado = ui8Array(MAX_ARBOLES);
+
+let arbol_areaContaminacion = f32Array(MAX_ARBOLES);
+//let arbol_charcosArcoirisTipo = ui8Array(MAX_ARBOLES);
+
+const datosArbol = f32Array(5); // Buffer estático para colisiones
+datosArbol[2] = arbol_radio;
+
+let numArboles = 0; // Control de elementos activos
+
+function crearArbol(x, y) {
+  if (numArboles >= MAX_ARBOLES) return;
+  
+  let i = numArboles++;
+  
+  arbol_activo[i] = true
+  
+  arbol_x[i] = x;
+  arbol_y[i] = y;
+  
+  arbol_alfa[i] = 1;
+  
+  arbol_anguloFactor[i] = rMinMax(.08, .2) * (m.random() < .5 ? 1 : -1);
+
+
+arbol_angulo[i] = 0
+
+  arbol_tinta[i] = rMinMax(0, 3) | 0;
+  arbol_contaminado[i] = 0;
+  
+  arbol_areaContaminacion[i] = 0
+  //arbol_charcosArcoirisTipo[i] = rMinMax(0, 3) | 0;
+
+ // numArboles = (numArboles + 1) % MAX_ARBOLES;
+  
+}
+
+
+function arbolContaminar(i) {
+  arbol_contaminado[i] = 1
+}
+
+function arbolDescontaminar(i) {
+  arbol_contaminado[i] = 0
+  arbol_areaContaminacion[i] = 0
+  
+    efectoDescontaminacion(
+  arbol_x[i] , arbol_y[i])
+  
+}
+
+
+//let tEfecto = arbol_tick
+
+function arbolCharcosArcoirisRender(i) {
+  
+  
+  if (arbol_contaminado[i]) {
+    
+    
+    
+  //  tEfecto[i] += 1 / 60;
+
+    const tamMax = arbol_areaContaminacion[i];
+    const duracionCiclo = 2; // Duración en segundos por cada pulso
+
+    // 1. Obtener la fase del ciclo en un rango normalizado de 0.0 a 1.0
+    const progreso = (arbol_tick % duracionCiclo) / duracionCiclo;
+
+if(progreso<.1 && arbol_alfa[i]>.4 && arbol_activo[i]) {
+particulasArbolContaminado(arbol_x[i],arbol_y[i]-64,10,arbol_areaContaminacion[i])
+
+}
+
+
+if (progreso < .1) {
+  
+  
+  
+  
+  
+
+  ctxManchas.save()
+            
+          
+        ctxManchas.translate(
+          
+arbol_x[i] + rMinMax(-arbol_areaContaminacion[i], arbol_areaContaminacion[i]),
+arbol_y[i] + rMinMax(-arbol_areaContaminacion[i], arbol_areaContaminacion[i]));
+  
+  
+  ctxManchas.transform(1,0,0,.5,0,0)
+  
+  ctxManchas.rotate(rMinMax(-1,1))          
+  
+  ctxManchas.fillStyle = coloresArcoiris[rMinMax(0, 6) | 0]
+  
+  ctxManchas.globalAlpha = rMinMax(.4,.8)
+  ctxManchas.fillRect(-7,-7,14,14)
+
+ctxManchas.restore()  
+  
+
+  
+}
+
+
+/*
+return
+    // 2. Tamaño en función del progreso
+    const tamX = progreso * tamMax;
+
+    // 3. Alfa desvanecido: empieza en 0.4 y cae linealmente hasta 0.0 al llegar a 1.0
+    const alfaDinamico = 0.6 * (1.0 - progreso);
+
+    // Renderizado con el alfa calculado
+    alfa(alfaDinamico);
+    dibujarSprite(
+      atlas.charcosArcoiris_Tint[5], 
+      arbol_x[i], arbol_y[i],
+      tamX, tamX,
+      0, 0.5, 0.5
+    );
+    alfa(); // Restaurar alfa por defecto (1.0)
+ */
+ }
+}
+
+function arbolCyclo() {
+  arbol_tick += deltaFijo;
+  
+  for (let i = 0; i < numArboles; i++) {
+            
+    
+    // 1. PROPAGACIÓN DE INFECCIÓN Y CRECIMIENTO
+    if (arbol_contaminado[i]) {
+      
+    arbolCharcosArcoirisRender(i)  
+      
+  // 1. Crecimiento del charco dependiente
+  if (arbol_areaContaminacion[i] < 512) { arbol_areaContaminacion[i] += 0.1;
+  }
+
+  // 2. Radio dinámico según el tamaño actual del charco
+  // Opcional: m.min(...) si quieres ponerle un tope estricto al rango de contagio
+  const radioActual = arbol_areaContaminacion[i] * 0.5;
+
+  // 3. Evaluar contagio contra árboles sanos
+  for (let a = 0; a < numArboles; a++) {
+    if (arbol_contaminado[a]) continue;
+
+    // Usamos distCuadrada con el radio exacto que ocupa el charco en este frame
+/* arbol_contaminado[a] = distCuadrada(arbol_x[i], arbol_y[i], arbol_x[a], arbol_y[a], radioActual)*/
+  }
+  
+  
+  for (let a = 0; a < numAgua; a++) {
+    if (agua_contaminada[a]) continue;
+    
+      agua_contaminada[a] = distCuadrada(arbol_x[i], arbol_y[i], agua_x[a], agua_y[a], radioActual);
+    
+  }
+
+  
+  
+}
+
+
+arbol_activo[i] = culling2d(arbol_x[i], arbol_y[i])
+  
+  
+    // 2. CULLING: Si está fuera de pantalla, omitir lógica visual y de colisión
+    if (arbol_activo[i]) {
+      
+    // 3. EFECTO DE VIENTO Y TRANSPARENCIA
+    arbol_angulo[i] = m.sin(arbol_tick) * arbol_anguloFactor[i];
+    
+    let alfaObjetivo = 1;
+    const xMin = arbol_x[i] - 30;
+    const xMax = arbol_x[i] + 30;
+    const yMin = arbol_y[i] - 36*3; // 16 * 4 * 1.4
+    const yMax = arbol_y[i];
+    
+    if (entre2puntos(xMin, jugador_x, xMax) && entre2puntos(yMin, jugador_y, yMax)) {
+      alfaObjetivo = 0.2;
+    }
+    
+    for (let u = 0; u < numUnicornios; u++) {
+    
+    if (entre2puntos(xMin, unicornio_x[u], xMax) && entre2puntos(yMin, unicornio_y[u], yMax)) {
+  alfaObjetivo = 0.4;
+} 
+    
+    
+    } 
+    // Transición suave de transparencia
+    arbol_alfa[i] += limitMinMax(alfaObjetivo - arbol_alfa[i], -.05, .05);
+    
+    // 4. COLISIÓN CON EL JUGADOR
+    datosArbol[0] = arbol_x[i];
+    datosArbol[1] = arbol_y[i];
+
+    if (colision(datosJugador, datosArbol, RESPUESTA_COLISION)) {
+      jugador_x += RESPUESTA_COLISION[0];
+      jugador_y += RESPUESTA_COLISION[1];
+    }
+    
+    };
+  }
+}
+
+function arbolRender(i) {
+  if (arbol_activo[i]) {
+
+  const x = arbol_x[i];
+  const y = arbol_y[i] + arbol_radio;
+
+  // Base del árbol
+  dibujarSprite(
+    atlas.baseArbol, x, y, 8*4,5*4, 0, 0.5, 1
+  );
+
+
+  dibujarSprite(
+    atlas.baseArbol2, x, y - 18, 8*4,4*4, arbol_angulo[i], 0.5, 1
+  );
+
+
+  // Tronco y Hojas con opacidad dinámica
+  alfa(arbol_alfa[i]);
+
+  dibujarSprite(
+    atlas.troncoArbol, x, y - 20, 4*4,6*6, arbol_angulo[i], 0.5, 0.8
+  );
+
+  const tIndex = arbol_contaminado[i] ? 3 : arbol_tinta[i];
+
+//arbol_tinta[i]= rMinMax(0,2)|0
+  
+  //console.log(arbol_tinta[i])    
+
+
+  dibujarSprite(
+    //atlas.arbolTint[tIndex],
+    atlas.hojasArbol,
+    x, y - 20, 20*4,21*4,
+    arbol_angulo[i], 0.5, 1.3,...atlasDatos.hojasArbol,0,atlas.arbolColor[tIndex]
+  );
+
+  alfa(); // Restaurar alfa del contexto global
+}
+}
+
+function arbolSombra(i) {
+  if (arbol_activo[i]) {
+   
+    dibujarSprite(
+      atlas.sombraArbol,
+      arbol_x[i], arbol_y[i] + 24,
+      14*4
+      , 8*4,
+      0, 0.5, 1
+    );
+  }
+}
+
+
+/* --- Archivo: pasto.js --- */
+//PASTO
+const MAX_PASTO = 2000
+
+
+let pasto_x = f32Array(MAX_PASTO);
+let pasto_y = f32Array(MAX_PASTO);
+let pasto_angulo = f32Array(MAX_PASTO);
+let pasto_anguloInicial = f32Array(MAX_PASTO);
+let pasto_anguloFactor = f32Array(MAX_PASTO);
+let pasto_activo = f32Array(MAX_PASTO)
+//let pasto_contaminada = ui8Array(MAX_PASTO)
+
+let pasto_tipo = ui8Array(MAX_PASTO)
+
+let numPasto = 0; // Control de elementos activos
+
+
+// 1. Un canvas auxiliar pequeño para leer la textura del pasto
+
+function crearPasto(x, y) {
+    
+    if (numPasto >= MAX_PASTO) return;
+    
+    let i = numPasto++;
+    
+   // pasto_contaminada[i] = false
+    
+    pasto_x[i] = x;
+    
+    pasto_y[i] = y;
+    
+    pasto_anguloFactor[i] = rMinMax(.1, .4) * (m.random() < .5 ? 1 : -1);
+    pasto_anguloInicial[i] = rMinMax(-.3, .3)
+    
+    pasto_angulo[i] = pasto_anguloFactor[i]+rMinMax(.2, .4)
+    
+    pasto_tipo[i] = rMinMax(0,6)|0
+}
+
+
+function pastoCyclo() {
+    for (let i = 0; i < numPasto; i++) {
+pasto_activo[i] = culling2d(pasto_x[i],pasto_y[i])
+
+if(pasto_activo[i]) {
+    pasto_angulo[i] = m.sin(arbol_tick*2) * pasto_anguloFactor[i] + pasto_anguloInicial[i];
+    
+}
+    }
+}
+
+function pastoRender(i) {
+    //  pasto_angulo[i]=0
+    
+            if (pasto_activo[i]) {
+            
+            
+            /*
+  dibujarCharcoLluvia(
+  ctxAux,
+  pasto_x[i], // Esquina superior izquierda X
+  pasto_y[i], // Esquina superior izquierda Y
+  40*4, // Ancho (40 * 4)
+  40*4, // Alto (40 * 4)
+  arbol_tick*0.1, // Animación continua
+  i * 1.5 // Semilla única para que cada charco tenga bordes distintos
+);
+
+  */
+            
+            
+         //   let color = pasto_contaminada[i] ? 1 : 0
+
+let tipo = 'pasto' + pasto_tipo[i]
+
+let ancho = atlasDatos[tipo][2]
+let alto = atlasDatos[tipo][3]
+
+
+
+
+        
+            
+            
+            dibujarSprite(
+    atlas[tipo],
+    pasto_x[i], pasto_y[i],
+    ancho * 4, alto * 4,
+    pasto_angulo[i], .5, 1
+);
+            
+        }
+   
+   
+   ctx.fillRect(pasto_x[i]-1,pasto_y[i]-1,2,2)     
+    
+}
+
+function pastoSombra(i) {
+    if (pasto_activo[i]) {
+      dibujarSprite(
+    atlas.pastoSombra,
+    pasto_x[i], pasto_y[i],
+    4 * 4, 3 * 4,
+    0, .5, .5
+);  
+    }
+}
+
+/* --- Archivo: agua.js --- */
+const MAX_AGUA = 100
+
+
+let agua_x = f32Array(MAX_AGUA);
+let agua_y = f32Array(MAX_AGUA);
+let agua_alfa = f32Array(MAX_AGUA);
+let agua_angulo = f32Array(MAX_AGUA);
+let agua_activo = ui8Array(MAX_AGUA)
+let agua_contaminada = ui8Array(MAX_AGUA)
+let agua_escala = f32Array(MAX_AGUA)
+
+let numAgua = 0; // Control de elementos activos
+
+
+// 1. Un canvas auxiliar pequeño para leer la textura del agua
+
+let canvasAgua, ctxAgua
+
+function inicializarMapeoAgua(imagenAgua) {
+   canvasAgua = crearCanvas(24, 16)
+ ctxAgua = contexto(canvasAgua,true)
+  // Dibujamos la imagen del agua limpia en memoria
+  ctxAgua.drawImage(imagenAgua, 0, 0);
+}
+
+function puntoEstaEnAgua(x, y, imgX, imgY, imgW, imgH, anguloRadianes) {
+  // imgW = 160, imgH = 160
+  
+  if(!canvasAgua || !ctxAgua) return
+  
+  // 1. Traslación respecto al centro (imgX, imgY)
+  const dx = x - imgX;
+  const dy = y - imgY;
+  
+  // 2. Rotación inversa hacia el espacio local
+  const cos = m.cos(-anguloRadianes);
+  const sin = m.sin(-anguloRadianes);
+  
+  const localX = dx * cos - dy * sin;
+  const localY = dx * sin + dy * cos;
+  
+  // 3. Mitades de las dimensiones
+  const medioW = imgW / 2; // 80
+  const medioH = imgH / 2; // 80
+
+  // Comprobar si cae dentro del área delimitada [-80, 80]
+  if (
+    localX < -medioW || localX > medioW ||
+    localY < -medioH || localY > medioH
+  ) {
+    return false; // Fuera del área
+  }
+  
+  // 4. Mapear de [-medio, +medio] a espacio normalizado [0.0, 1.0]
+  const relX = (localX + medioW) / imgW; 
+  const relY = (localY + medioH) / imgH; 
+  
+  // Mapear a la textura base de 8x8
+  const pixelX = m.floor(relX * canvasAgua.width);
+  const pixelY = m.floor(relY * canvasAgua.height);
+  
+  // Limitar bordes exactos
+  const px = m.max(0, m.min(pixelX, canvasAgua.width - 1));
+  const py = m.max(0, m.min(pixelY, canvasAgua.height - 1));
+  
+  // 5. Lectura de opacidad
+  const pixel = ctxAgua.getImageData(px, py, 1, 1).data;
+  
+  return pixel[3] > 10;
+}
+
+
+function crearAgua(x,y) {
+    
+    if (numAgua >= MAX_AGUA) return;
+  
+  let i = numAgua++;
+  
+agua_ondaTiempo[i]
+
+agua_contaminada[i] = false
+
+agua_x[i] = x;
+
+agua_y[i] = y;
+
+agua_alfa[i] = 1
+
+agua_escala[i] = rMinMax(4,6)
+
+agua_angulo[i] = rMinMax(-1,1)
+
+}
+
+let agua_ondaTiempo = f32Array(MAX_AGUA)
+
+function aguaCyclo() {
+
+
+// ==========================================
+// 1. COMPROBAR SI EL JUGADOR ESTÁ EN EL AGUA
+// ==========================================
+jugador_enAgua = false;
+
+for (let i = 0; i < numAgua; i++) {
+
+if(agua_ondaTiempo[i]>=1) agua_ondaTiempo[i]=0
+agua_ondaTiempo[i] += deltaFijo
+
+
+let x = agua_x[i]
+let y = agua_y[i]
+
+agua_activo[i] = culling2d(agua_x[i], agua_y[i])
+
+
+  if (agua_activo[i]) { 
+    if (!jugador_enAgua && puntoEstaEnAgua(jugador_x, jugador_y, agua_x[i], agua_y[i], 24*agua_escala[i],16*agua_escala[i], agua_angulo[i])) {
+      jugador_enAgua = true;
+      
+     // efectoOnda(jugador_x, jugador_y, .75,'#2287c3')
+     
+      break; // Detener bucle al encontrar la primera colisión
+    }
+  }
+}
+
+// ==============================================
+// 2. COMPROBAR SI LOS UNICORNIOS ESTÁN EN EL AGUA
+// ==============================================
+
+for (let i = 0; i < numUnicornios; i++) {
+  unicornio_enAgua[i] = false; // Asumir por defecto que no está en agua
+
+  // Bucle interno: probar contra cada parche de agua
+  for (let a = 0; a < numAgua; a++) {
+    // Culling opcional para evitar cálculos innecesarios
+    if (agua_activo[a]) {
+      if (puntoEstaEnAgua(unicornio_x[i], unicornio_y[i], agua_x[a], agua_y[a], 24*agua_escala[i],16*agua_escala[i], agua_angulo[a])) {
+        unicornio_enAgua[i] = true;
+        break; // Detener bucle para este unicornio y pasar al siguiente
+      }
+    }
+  }
+}
+  
+}
+
+function aguaRender() {
+//  agua_angulo[i]=0
+for (let i = 0; i < numAgua; i++) {
+  if(agua_activo[i]) {
+  
+  
+  /*
+  dibujarCharcoLluvia(
+  ctxAux,
+  agua_x[i], // Esquina superior izquierda X
+  agua_y[i], // Esquina superior izquierda Y
+  40*4, // Ancho (40 * 4)
+  40*4, // Alto (40 * 4)
+  arbol_tick*0.1, // Animación continua
+  i * 1.5 // Semilla única para que cada charco tenga bordes distintos
+);
+
+  */
+  
+  
+  let color = agua_contaminada[i] ? 1: 0
+  
+  if(m.random()>.95) efectoOnda(
+    agua_x[i] + rMinMax(-30,30), 
+  agua_y[i] + rMinMax(-30,30), 
+  .5,'#fff9')
+ 
+
+alfa(.6)
+  
+  
+  dibujarSprite(
+    atlas.agua,
+    agua_x[i], agua_y[i],
+    (24*agua_escala[i]),(16*agua_escala[i]),
+    agua_angulo[i],.5,.5,0,0,24,16,0,atlas.aguaColor[color]
+);
+
+alfa()
+
+}
+
+}
+
+}
+
+/* --- Archivo: textos.js --- */
+// ==========================================
+// 2. SISTEMA DE BITMAP FONT & TINTADO
+// ==========================================
+
+const fuenteImg = new Image();
+fuenteImg.src = 'f.png';
+
+// ==========================================
+// 1. CONFIGURACIÓN Y ESTADO DE TEXTOS
+// ==========================================
+const MAX_TEXTOS = 500;
+const CARACTER_TAMAÑO = 8;        // Ancho/alto en px de cada letra en la imagen
+const MAPA_CARACTERES_ANCHO = 7;  // Letras por fila en la imagen
+const MAPA_CARACTERES = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!.%*#";
+
+// Arrays paralelos (Data Oriented Design)
+let textos_txt = [];
+let textos_color = [];
+let textos_escala = f32Array(MAX_TEXTOS);
+let textos_x = f32Array(MAX_TEXTOS);
+let textos_y = f32Array(MAX_TEXTOS);
+let textos_vida = f32Array(MAX_TEXTOS); 
+
+let numTextos = 0;
+
+
+// ==========================================
+// 2. SISTEMA DE BITMAP FONT & TINTADO
+// ==========================================
+function dibujarTextoBitmap(texto, x, y, escala = 1, color = '#fff') {
+  texto = texto.toUpperCase();
+  
+  // 1. Clave de caché única
+  let key = fuenteImg.src + color;
+  
+  // 2. Comprobar/Guardar en caché usando operador lógico ||
+  let imagen = imagenesTintadas[key] || (imagenesTintadas[key] = crearImagen(fuenteImg.width, fuenteImg.height, (ctx) => {
+    let pos = [0, 0, fuenteImg.width, fuenteImg.height];
+    ctx.drawImage(tintarImagen(fuenteImg, pos, color), ...pos);
+  }));
+
+  // Pre-calcular el tamaño escalado del carácter fuera del bucle
+  let tamEscalado = (CARACTER_TAMAÑO * escala) | 0;
+
+let centroX = x - ((texto.length * tamEscalado)/2)
+
+
+
+  for (let i = 0; i < texto.length; i++) {
+    const index = MAPA_CARACTERES.indexOf(texto[i]);
+    
+    if (index !== -1) {
+      // Reemplazamos m.floor por | 0 para ahorrar bytes y velocidad
+      const srcX = (index % MAPA_CARACTERES_ANCHO) * CARACTER_TAMAÑO;
+      const srcY = ((index / MAPA_CARACTERES_ANCHO) | 0) * CARACTER_TAMAÑO;
+      
+      ctx.drawImage(
+        imagen,
+        srcX, srcY, CARACTER_TAMAÑO, CARACTER_TAMAÑO,
+        (centroX + i * tamEscalado) | 0, (y | 0), tamEscalado, tamEscalado
+      );
+    }
+  }
+}
+
+// ==========================================
+// 3. GESTIÓN DE ESTRUCTURA Y MEMORIA
+// ==========================================
+function crearTexto(texto, x, y, escala = 1, color = '#fff') {
+  if (numTextos >= MAX_TEXTOS) return;
+  
+  let i = numTextos++;
+  textos_txt[i] = texto;
+  textos_x[i] = x;
+  textos_y[i] = y;
+  textos_escala[i] = escala;
+  textos_color[i] = color;
+  textos_vida[i] = .5;
+}
+
+function eliminarTexto(i) {
+  const ultimo = --numTextos;
+  if (i !== ultimo) {
+    textos_txt[i] = textos_txt[ultimo];
+    textos_x[i] = textos_x[ultimo];
+    textos_y[i] = textos_y[ultimo];
+    textos_escala[i] = textos_escala[ultimo];
+    textos_color[i] = textos_color[ultimo];
+    textos_vida[i] = textos_vida[ultimo];
+  }
+}
+
+// ==========================================
+// 4. CICLO LÓGICO Y RENDERIZADO SEPARADOS
+// ==========================================
+
+// --- LÓGICA / CICLO (Update) ---
+function textosCyclo(dt) {
+  // Disminuye vida y elimina expirados en orden inverso
+  for (let i = numTextos - 1; i >= 0; i--) {
+    textos_vida[i] -= deltaFijo; // Duración: 0.5 segundos
+
+    if (textos_vida[i] <= 0) {
+      eliminarTexto(i);
+    }
+  }
+}
+
+function textoRender(i) {
+  
+  for (let i = 0; i < numTextos; i++) {
+let progreso = textos_vida[i] / .5; // De  (inicio) a 0 (final)
+let offsetY = (progreso) * 40; // Sube 20px durante su vida
+
+
+alfa(limitMinMax(progreso, 0, 1)); // Aplica desvanecimiento
+dibujarTextoBitmap(
+  textos_txt[i],
+  textos_x[i],
+  textos_y[i] + offsetY,
+  textos_escala[i],
+  textos_color[i]
+);
+alfa(1); // Restaura alfa
+  }
+  
+  
+
+}
+
+/* --- Archivo: proyectil.js --- */
+//*********************************************
+// PROYECTILES ESTRUCTURA SOA (Structure of Arrays)
+//*********************************************
+const coloresArcoiris = ['#f00', '#f60', '#ff0', '#7f0', '#004cff','#60f'];
+    
+
+const proyectil_color = [
+  '#f90', '#fff'
+]
+
+const TIPO_PROYECTIL_JUGADOR = 0
+const TIPO_PROYECTIL_UNICORNIO = 1
+
+const MAX_PROYECTILES = 1000;
+
+   let proyectil_x = f32Array(MAX_PROYECTILES);
+ let proyectil_y = f32Array(MAX_PROYECTILES);
+let proyectil_radio = f32Array(MAX_PROYECTILES)
+    
+  let  proyectil_vx = f32Array(MAX_PROYECTILES)
+let    proyectil_vy = f32Array(MAX_PROYECTILES)
+ let   proyectil_velocidad = f32Array(MAX_PROYECTILES)
+let proyectil_angulo = f32Array(MAX_PROYECTILES)
+// let   proyectil_activo = f32Array(MAX_PROYECTILES)
+    
+   
+let proyectil_tipo = ui8Array(MAX_PROYECTILES)  
+
+  
+  const datosProyectil = f32Array(5); // Buffer estático reutilizable para colicion
+
+let numProyectiles = 0; // Control de elementos activos
+
+
+/*
+function eliminarProyectil(i) {
+  proyectiles.activos--; // Reducimos el contador
+  const ultimo = proyectiles.activos;
+  
+  // Copiamos los datos del último elemento a la posición que queremos borrar
+  proyectiles.x[i] = proyectiles.x[ultimo];
+  proyectiles.y[i] = proyectiles.y[ultimo];
+  proyectiles.vx[i] = proyectiles.vx[ultimo];
+  proyectiles.vy[i] = proyectiles.vy[ultimo];
+}
+*/
+
+
+
+  // CREACIÓN: O(1)
+  // Agrega al final del arreglo activo
+  /*
+  spawn(x, y, vx, vy, health = 100) {
+    if (this.count >= this.capacity) return -1; // Pool lleno
+    
+    const id = this.count;
+    this.x[id] = x;
+    this.y[id] = y;
+    this.vx[id] = vx;
+    this.vy[id] = vy;
+    this.health[id] = health;
+    
+    this.count++;
+    return id;
+  }
+  
+  // ELIMINACIÓN: O(1) (Swap & Pop)
+  // Mueve el último elemento activo al índice eliminado para evitar huecos
+  kill(id) {
+    if (id < 0 || id >= this.count) return;
+    
+    const last = this.count - 1;
+    
+    if (id !== last) {
+      // Intercambiar datos del elemento final a la posición que se elimina
+      this.x[id] = this.x[last];
+      this.y[id] = this.y[last];
+      this.vx[id] = this.vx[last];
+      this.vy[id] = this.vy[last];
+      this.health[id] = this.health[last];
+    }
+    
+    // Reducir la cuenta efectivamente "borra" el último elemento
+    this.count--;
+  }
+*/
+
+
+function crearProyectil(x, y, angulo, velocidad, tipo) {
+    if (numProyectiles >= MAX_PROYECTILES) return; // Usar el límite adecuado
+
+    let i = numProyectiles++;
+
+    proyectil_x[i] = x;
+    proyectil_y[i] = y;
+    proyectil_radio[i] = 4;
+    proyectil_velocidad[i] = velocidad;
+    proyectil_angulo[i] = angulo;
+    
+    proyectil_tipo[i] = tipo
+    
+    
+
+    proyectil_vx[i] = m.cos(angulo) * velocidad;
+    proyectil_vy[i] = m.sin(angulo) * velocidad;
+
+
+
+
+
+    //console.log('Proyectil N°:', i);
+}
+
+function eliminarProyectil(i) {
+  // 1. Decrementa numProyectiles primero y guarda el índice del último elemento real
+ if(proyectil_tipo[i] != TIPO_PROYECTIL_JUGADOR) explosionMisilUnicornio(proyectil_x[i], proyectil_y[i], 40);
+ 
+ 
+  const ultimo = numProyectiles-1;
+
+  // 2. Sobrescribe la posición 'i' con los datos del último proyectil
+  if (i !== ultimo) {
+  proyectil_x[i] = proyectil_x[ultimo];
+  proyectil_y[i] = proyectil_y[ultimo];
+  proyectil_radio[i] = proyectil_radio[ultimo];
+  proyectil_velocidad[i] = proyectil_velocidad[ultimo];
+  proyectil_angulo[i] = proyectil_angulo[ultimo];
+  
+  proyectil_tipo[i] = proyectil_tipo[ultimo]
+  
+  proyectil_vx[i] = proyectil_vx[ultimo];
+  proyectil_vy[i] = proyectil_vy[ultimo];
+  
+}
+
+numProyectiles--
+  
+  //console.log('Proyectil eliminado N°:', i);
+}
+
+function proyectilCyclo() {
+  // Iterar en reversa evita problemas con i-- y el cambio de longitud
+  //for (let i = numProyectiles - 1; i >= 0; i--) {
+  for (let i = 0; i < numProyectiles; i++) {
+    // 1. Mover
+    proyectil_x[i] += proyectil_vx[i];
+    proyectil_y[i] += proyectil_vy[i];
+
+    // 2. Validar límites
+    if (
+      proyectil_x[i] > LIMITE_MUNDO || 
+      proyectil_x[i] < 0 || 
+      proyectil_y[i] > LIMITE_MUNDO ||
+      proyectil_y[i] < 0
+    ) eliminarProyectil(i),i--;
+    
+//ESTELA DE UNICORNIO
+if(proyectil_tipo[i]!= TIPO_PROYECTIL_JUGADOR) {
+                let color = coloresArcoiris[m.floor(m.random() * coloresArcoiris.length)];
+                particulasCrear(
+                  proyectil_x[i] + (m.random() * 2 - 1),
+                  proyectil_y[i] + (m.random() * 2 - 1),
+                  (m.random() - 0.5) * 0.5,
+                  (m.random() - 0.5) * 0.5,
+                  color,
+                  15 + m.random() * 10,
+                  1
+                );
+}
+
+
+//HUMO DE BALA DE JUGADOR
+if(proyectil_tipo[i]!= TIPO_PROYECTIL_UNICORNIO) {
+                
+                for (let p = 0; p < 12; p++) {
+                  let color = '#aa8'
+                  particulasCrear(
+  proyectil_x[i] + (m.random() * 2 - 1),
+  proyectil_y[i] + (m.random() * 2 - 1),
+  (m.random() - 0.5) * 0.5,
+  (m.random() - 0.5) * 0.5,
+  color,
+  5 + m.random() * 10,
+  1
+);
+                }
+}
+
+
+
+  }
+}
+
+function proyectilRender(i) {
+if (culling2d(proyectil_x[i],proyectil_y[i]))  
+  {
+  
+  
+  
+    ctx.fillStyle=proyectil_color[proyectil_tipo[i]]
+  ctx.fillRect(proyectil_x[i],proyectil_y[i],4*2,4*2)
+}}
+
+/* --- Archivo: unicornio.js --- */
+//*********************************************
+// UNICORNIOS ESTRUCTURA SOA (Structure of Arrays)
+//*********************************************
+const MAX_UNICORNIOS = 200;
+
+// Arreglos tipados en SoA (Cero asignaciones dinámicas)
+let unicornio_x = f32Array(MAX_UNICORNIOS);
+let unicornio_y = f32Array(MAX_UNICORNIOS);
+let unicornio_vx = f32Array(MAX_UNICORNIOS);
+let unicornio_vy = f32Array(MAX_UNICORNIOS);
+let unicornio_direccion = f32Array(MAX_UNICORNIOS);
+
+let unicornio_activo = f32Array(MAX_UNICORNIOS);
+
+
+let unicornio_angulo = f32Array(MAX_UNICORNIOS);
+let unicornio_desfaceY = f32Array(MAX_UNICORNIOS);
+let unicornio_desfaceX = f32Array(MAX_UNICORNIOS)
+let unicornio_radio = f32Array(MAX_UNICORNIOS);
+let unicornio_vida = f32Array(MAX_UNICORNIOS);
+//let unicornio_vidaMax = f32Array(MAX_UNICORNIOS);
+let unicornio_tipo = ui8Array(MAX_UNICORNIOS);
+
+let unicornio_enAgua = ui8Array(MAX_UNICORNIOS);
+
+let unicornio_color = ui8Array(MAX_UNICORNIOS)
+
+let unicornio_golpeo = ui8Array(MAX_UNICORNIOS)
+let unicornio_efectoOndas = ui8Array(MAX_UNICORNIOS)
+// FSM y Control IA
+let unicornio_estadoTiempo = f32Array(MAX_UNICORNIOS);
+//let unicornio_apuntado = f32Array(MAX_UNICORNIOS);
+let unicornio_estado = ui8Array(MAX_UNICORNIOS);
+let unicornio_IA_golpe_Tiempo = f32Array(MAX_UNICORNIOS);
+let unicornio_objetivoX = f32Array(MAX_UNICORNIOS);
+let unicornio_objetivoY = f32Array(MAX_UNICORNIOS);
+let unicornio_arbolObjetivo = f32Array(MAX_UNICORNIOS);
+
+let unicornio_tiempoVelocidad = f32Array(MAX_UNICORNIOS)
+
+const datosUnicornio = f32Array(3); // Buffer estático para colisiones
+const datosUnicornio2 = f32Array(3); // Buffer estático para colisiones UNICORNIO VS UNICORNIO
+
+let numUnicornios = 0; // Control de elementos activos
+
+// TIPOS DE UNICORNIOS
+const UNICORNIO_ARCOIRIS = 0;
+const UNICORNIO_MELE = 1;
+const UNICORNIO_RANGO = 2;
+//const UNICORNIO_JEFE = 3;
+
+// ESTADOS FSM
+const ESTADO_CAMINANDO = 0;
+const ESTADO_ATACANDO = 1;
+const ESTADO_CONTAMINANDO = 2;
+const ESTADO_QUIETO = 3;
+
+function crearUnicornio(x, y,vida,tipo) {
+    if (numUnicornios >= MAX_UNICORNIOS) return;
+    
+    let i = numUnicornios++;
+    unicornio_activo[i] = true
+    unicornio_x[i] = x;
+    unicornio_y[i] = y;
+    unicornio_radio[i] = 18;
+    unicornio_vx[i] = 0;
+    unicornio_vy[i] = 0;
+    unicornio_angulo[i] = 0;
+    unicornio_desfaceY[i] = 0;
+    unicornio_desfaceX[i] = 0;
+    unicornio_direccion[i] = 1;
+  // unicornio_vidaMax[i] = 
+   unicornio_vida[i] = vida;
+    unicornio_tipo[i] = tipo//m.floor(rMinMax(0, 3))
+unicornio_golpeo[i] = false
+unicornio_efectoOndas[i] = false
+unicornio_enAgua[i] = false
+
+unicornio_color[i] =m.floor(rMinMax(0,5))
+
+unicornio_tiempoVelocidad[i] = 0
+    // Reset de estado e IA
+    unicornio_estadoTiempo[i] = 0;
+    unicornio_estado[i] = ESTADO_QUIETO;
+    unicornio_IA_golpe_Tiempo[i] = 0;
+    
+    unicornio_arbolObjetivo[i] = -1;
+    
+    explosionMisilUnicornio(unicornio_x[i], unicornio_y[i])
+
+efectoOnda(unicornio_x[i], unicornio_y[i],1,'#0f0')
+
+}
+
+function eliminarUnicornio(i) {
+    const ultimo = numUnicornios - 1;
+
+
+explosionMisilUnicornio(unicornio_x[i], unicornio_y[i]-(4*4))
+
+efectoOnda(unicornio_x[i], unicornio_y[i],1,'#f00')
+
+    // Swap-Remove: Reemplazar el elemento eliminado por el último activo
+    if (i !== ultimo) {
+        unicornio_activo[i] = unicornio_activo[i]
+        unicornio_x[i] = unicornio_x[ultimo];
+        unicornio_y[i] = unicornio_y[ultimo];
+        unicornio_vx[i] = unicornio_vx[ultimo];
+        unicornio_vy[i] = unicornio_vy[ultimo];
+        unicornio_radio[i] = unicornio_radio[ultimo];
+        unicornio_angulo[i] = unicornio_angulo[ultimo];
+        unicornio_desfaceY[i] = unicornio_desfaceY[ultimo];
+        
+        unicornio_desfaceY[i] = unicornio_desfaceY[ultimo];
+        
+        unicornio_golpeo[i] = unicornio_golpeo[ultimo]
+        
+        unicornio_tiempoVelocidad[i] = unicornio_tiempoVelocidad[ultimo] 
+        
+        unicornio_efectoOndas[i] = unicornio_efectoOndas[ultimo]
+        
+        
+        unicornio_direccion[i] = unicornio_direccion[ultimo];
+        unicornio_vida[i] = unicornio_vida[ultimo];
+       
+     //  unicornio_vidaMax[i] = unicornio_vidaMax[ultimo];
+       
+       
+        unicornio_tipo[i] = unicornio_tipo[ultimo];
+
+unicornio_enAgua[i] = unicornio_enAgua[ultimo]
+
+unicornio_color[i] = unicornio_color[ultimo]
+
+        // Copiar estado e IA
+        unicornio_estadoTiempo[i] = unicornio_estadoTiempo[ultimo];
+        unicornio_estado[i] = unicornio_estado[ultimo];
+    //    unicornio_apuntado[i] = unicornio_apuntado[ultimo];
+        unicornio_IA_golpe_Tiempo[i] = unicornio_IA_golpe_Tiempo[ultimo];
+        unicornio_objetivoX[i] = unicornio_objetivoX[ultimo];
+        unicornio_objetivoY[i] = unicornio_objetivoY[ultimo];
+
+        unicornio_arbolObjetivo[i] = unicornio_arbolObjetivo[ultimo];
+    }
+
+    numUnicornios--;
+}
+
+function dañarUnicornio(i) {
+    let daño = rMinMax(25, 35)
+    unicornio_vida[i] -= daño;
+    
+    crearTexto(`${daño.toFixed(1)}`,unicornio_x[i],unicornio_y[i]-100,1.5,'#f00')
+   
+           for (let i = 0; i < 32; i++) {
+            particulasCrear(
+                unicornio_x[i] + (m.random() - 0.5) * 20, unicornio_y[i] + (m.random() - 0.5) * 20 - 16,
+                (m.random() - 0.5) * 1.5,
+                -(m.random() * 2),
+                '#f00',
+                20 + m.random() * 10,
+                2, TIPO_PARTICULA_FRENTE
+            )
+        } 
+
+    
+}
+
+function unicornioCambiarEstado(i, estado, tiempo = 0) {
+  //console.log('Camniando de estado::', estado)
+    unicornio_estadoTiempo[i] = tiempo;
+    unicornio_estado[i] = estado;
+}
+
+
+function MoverA(i, objX, objY, distanciaParada, velocidad) {
+    let dx = objX - unicornio_x[i];
+    let dy = objY - unicornio_y[i];
+    let distancia = m.hypot(dx, dy);
+
+    if (distancia > distanciaParada) {
+        if (unicornio_estado[i] !== ESTADO_ATACANDO &&
+         unicornio_estado[i] !== ESTADO_CONTAMINANDO
+          ) {
+            unicornio_estado[i] = ESTADO_CAMINANDO;
+        }
+        unicornio_vx[i] = (dx / distancia) * velocidad;
+        unicornio_vy[i] = (dy / distancia) * velocidad;
+    } else {
+        if (
+          
+         unicornio_estado[i] !== ESTADO_ATACANDO &&
+         unicornio_estado[i] !== ESTADO_CONTAMINANDO
+          
+          
+        ) {
+            unicornio_estado[i] = ESTADO_QUIETO;
+        }
+        unicornio_vx[i] = 0;
+        unicornio_vy[i] = 0;
+        
+    }
+
+    unicornio_x[i] += unicornio_vx[i] ;
+    unicornio_y[i] += unicornio_vy[i] ;
+}
+
+function unicornioGolpear(i) {
+    unicornio_IA_golpe_Tiempo[i]--;
+if(!jugador_muerto) {
+
+if(unicornio_IA_golpe_Tiempo[i] <= 30 && !unicornio_efectoOndas[i]) {
+    unicornioOndaAtaque(i,'#f00')
+}
+
+    if (unicornio_IA_golpe_Tiempo[i] <= 0) {
+        
+        unicornio_IA_golpe_Tiempo[i] = unicornio_tiempoVelocidad[i] ? 20 : 60;
+        unicornioCambiarEstado(i, ESTADO_ATACANDO);
+    }
+      
+}
+  
+}
+
+function unicornioMaqEstados(i) {
+    unicornio_estadoTiempo[i]++;
+
+    switch (unicornio_estado[i]) {
+        case ESTADO_CAMINANDO:
+            unicornio_angulo[i] = m.sin(arbol_tick * (unicornio_enAgua[i]?4:12)) * (unicornio_enAgua[i]?.05:.1) * unicornio_direccion[i];
+            unicornio_desfaceY[i] = m.cos(arbol_tick * (unicornio_enAgua[i]?4:12)) * (unicornio_enAgua[i]?1:3);
+            
+          
+          if (unicornio_tipo[i] === UNICORNIO_RANGO) unicornioDisparar(i)
+ 
+            break;
+
+
+        case ESTADO_ATACANDO:
+
+// 1. Convertimos el tiempo (0 a 15) en un progreso que va de 0 a 1
+let tiempoNormalizado = unicornio_estadoTiempo[i] / 15; // Va de 0.0 a 1.0
+
+// 2. Usamos m.sin para crear una curva que sube a 1 y vuelve a 0 suavemente
+let progreso = m.sin(tiempoNormalizado * m.PI); 
+
+// 3. Calculamos la distancia hacia el jugador
+let distanciaX = jugador_x - unicornio_x[i];
+let distanciaY = jugador_y - unicornio_y[i];
+
+// 4. Aplicamos la interpolación
+unicornio_desfaceX[i] = lerp(0, distanciaX, progreso) / 2;
+unicornio_desfaceY[i] = lerp(0, distanciaY, progreso) / 2;
+
+
+//console.log(progreso)
+
+//efectoUnicornioOnda(unicornio_x[i],unicornio_y[i],2)
+
+if (tiempoNormalizado >= 0.5 && !unicornio_golpeo[i]) {
+    repSonido(SONIDO_GOLPE)
+    jugadorDaño();
+    unicornio_golpeo[i] = true; // Previene que aplique daño múltiples veces
+}
+if (unicornio_estadoTiempo[i] >= 15) {
+    unicornio_estadoTiempo[i] = 0
+    unicornio_golpeo[i] = false
+    unicornio_efectoOndas[i]= false
+    unicornioCambiarEstado(i, ESTADO_QUIETO);
+}
+
+            
+            break;
+
+        case ESTADO_CONTAMINANDO:
+            unicornio_angulo[i] = -m.cos(arbol_tick * (unicornio_enAgua[i]?4:12)) * ((unicornio_enAgua[i]?.3:.6) * unicornio_direccion[i]);
+            unicornio_desfaceY[i] = m.cos(arbol_tick * (unicornio_enAgua[i]?8:20)) * (unicornio_enAgua[i]?2:4); // Corregido: sin direccion
+
+            if (unicornio_estadoTiempo[i] >= 120) {
+             
+          if(unicornio_activo[i]) repSonido(SONIDO_ARBOL_CONT)
+             
+          // arbol_contaminado[] = true 
+            
+    arbolContaminar(unicornio_arbolObjetivo[i])
+            
+          //  unicornio_arbolObjetivo[i]=-1
+               
+            /*
+                arbolContaminar(unicornio_arbolObjetivo[i], 1);
+            */
+            
+                unicornioCambiarEstado(i, ESTADO_QUIETO);
+            }
+            break;
+
+        default: // ESTADO_QUIETO
+            unicornio_angulo[i] = 0;
+            unicornio_desfaceY[i] = 0;
+            
+            if (unicornio_tipo[i] === UNICORNIO_RANGO) 
+            {
+             
+     unicornio_angulo[i] = -m.cos(arbol_tick * (unicornio_enAgua[i]?4:12)) * ((unicornio_enAgua[i]?.05:.1) * unicornio_direccion[i]);
+            unicornio_desfaceY[i] = m.cos(arbol_tick * (unicornio_enAgua[i]?8:20)) * (unicornio_enAgua[i]?.5:2); // Corregido: sin direccion para evitar invertir Y
+
+      
+                
+                unicornioDisparar(i)
+            }
+   
+            break;
+    }
+}
+
+function unicornioOndaAtaque(i,color) {
+   efectoOnda(unicornio_x[i], unicornio_y[i], 2, color)
+unicornio_efectoOndas[i] = true; 
+}
+
+function unicornioDisparar(i) {
+    if (distCuadrada(unicornio_x[i], unicornio_y[i], jugador_x, jugador_y, 300) && !jugador_muerto
+    ) {
+    
+    if(unicornio_estadoTiempo[i]>35 && !unicornio_efectoOndas[i]) {
+        unicornioOndaAtaque(i,'#ff64af')
+    }
+    
+    if (unicornio_estadoTiempo[i] >= 45) {
+        
+        let x = unicornio_x[i]+((6*4)*unicornio_direccion[i])
+        let y = unicornio_y[i]-(14*4)
+        
+        let angulo = mirarHacia(x, y, jugador_x, jugador_y);
+        
+  //     efectoOnda(unicornio_x[i],unicornio_y[i],2,'#f00')
+       
+       repSonido(SONIDO_MISIL_MAGICO)
+        crearProyectil(x, y, angulo, 10, TIPO_PROYECTIL_UNICORNIO);
+    
+        unicornio_estadoTiempo[i] = 0
+        
+        unicornio_efectoOndas[i]=false
+        // unicornioCambiarEstado(i, ESTADO_QUIETO);
+    }
+    
+}
+            }
+   
+   
+   function unicornioVelocidadMele(i) {
+       unicornio_tiempoVelocidad[i] = 60
+   }         
+            
+function unicornioIA(i) {
+    unicornio_tiempoVelocidad[i]--
+    
+    let velocidad = (unicornio_tiempoVelocidad[i]>0 ? 6 : 2) * (unicornio_enAgua[i]?.4:1);
+    let distanciaParada = 50;
+
+    // 1. Si está ejecutando una acción que requiere estar quieto, no procesar movimiento ni ataques
+    if (unicornio_estado[i] === ESTADO_CONTAMINANDO) {
+        return;
+    }
+
+
+if(unicornio_tipo[i] === UNICORNIO_RANGO) {
+    
+    distanciaParada = 150;
+    unicornio_objetivoX[i] = jugador_x;
+    unicornio_objetivoY[i] = jugador_y;
+
+}
+
+    if (unicornio_tipo[i] === UNICORNIO_MELE) {
+        distanciaParada = 50;
+        unicornio_objetivoX[i] = jugador_x;
+        unicornio_objetivoY[i] = jugador_y;
+
+if(distCuadrada(unicornio_x[i], unicornio_y[i], jugador_x, jugador_y, 300) && m.random()>.9 && unicornio_tiempoVelocidad[i]<-(60*4)) {
+    unicornioVelocidadMele(i)
+}
+if (distCuadrada(unicornio_x[i], unicornio_y[i], jugador_x, jugador_y, 52)) {
+    unicornio_direccion[i] = jugador_x > unicornio_x[i] ? 1 : -1;
+    unicornioGolpear(i);
+}
+
+    } 
+
+    // 3. Comportamiento hacia los árboles (si no persigue al jugador)
+    if (unicornio_tipo[i] === UNICORNIO_ARCOIRIS) {
+    
+    if (distCuadrada(unicornio_x[i], unicornio_y[i], jugador_x, jugador_y, 300) && m.random() > .9 && unicornio_tiempoVelocidad[i] < -(60 * 4)) {
+    unicornioVelocidadMele(i)
+}
+    
+        for (let a = 0; a < numArboles; a++) {
+            if (!arbol_contaminado[a] && unicornio_estado[i]!=ESTADO_CONTAMINANDO) {
+                if (distCuadrada(unicornio_x[i], unicornio_y[i], arbol_x[a], arbol_y[a], 300) || distCuadrada(unicornio_x[i], unicornio_y[i], arbol_x[a], arbol_y[a], 9999)) {
+                    unicornio_objetivoX[i] = arbol_x[a];
+                    unicornio_objetivoY[i] = arbol_y[a];
+                }
+                
+                
+                if (distCuadrada(unicornio_x[i], unicornio_y[i], arbol_x[a], arbol_y[a], 60)) {
+                  
+    unicornio_arbolObjetivo[i] = a;
+                  
+          unicornioCambiarEstado(i,ESTADO_CONTAMINANDO)
+            
+                    
+                    break;
+                }
+            }
+        }
+    }
+
+    // 5. Mover hacia el objetivo asignado
+    if (unicornio_objetivoX[i] !== 0 || unicornio_objetivoY[i] !== 0) {
+        MoverA(i, unicornio_objetivoX[i], unicornio_objetivoY[i], distanciaParada, velocidad);
+    }
+}
+
+function actualizarColisionesUnicornio(u) {
+    if (unicornio_activo[u]) 
+
+{
+datosUnicornio[0] = unicornio_x[u];
+datosUnicornio[1] = unicornio_y[u];
+datosUnicornio[2] = unicornio_radio[u];
+
+// Colisión UNICORNIO - JUGADOR
+if (colision(datosJugador, datosUnicornio, RESPUESTA_COLISION)) {
+    jugador_x += RESPUESTA_COLISION[0];
+    jugador_y += RESPUESTA_COLISION[1];
+}
+
+// Colisión UNICORNIO - UNICORNIO
+for (let i = 0; i < numUnicornios; i++) {
+    
+    if (u != i) {
+        datosUnicornio2[0] = unicornio_x[i];
+        datosUnicornio2[1] = unicornio_y[i];
+        datosUnicornio2[2] = unicornio_radio[i];
+        
+        if (colision(datosUnicornio, datosUnicornio2, RESPUESTA_COLISION)) {
+            
+            unicornio_x[u] += RESPUESTA_COLISION[0];
+            unicornio_y[u] += RESPUESTA_COLISION[1];
+            
+            datosUnicornio[0] = unicornio_x[u];
+            datosUnicornio[1] = unicornio_y[u];
+        }
+    }
+    
+}
+
+// Colisión UNICORNIO - PROYECTIL
+for (let i = 0; i < numProyectiles; i++) {
+    
+    if (!proyectil_tipo[i]) {
+        datosProyectil[0] = proyectil_x[i];
+        datosProyectil[1] = proyectil_y[i];
+        datosProyectil[2] = proyectil_radio[i];
+        
+        if (colision(datosUnicornio, datosProyectil, RESPUESTA_COLISION)) {
+            dañarUnicornio(u);
+            eliminarProyectil(i);
+            i--;
+            datosUnicornio[0] = unicornio_x[u];
+            datosUnicornio[1] = unicornio_y[u];
+        }
+    }
+    
+    
+}    
+}
+
+    
+}
+
+function unicornioCyclo() {
+    for (let i = 0; i < numUnicornios; i++) {
+        
+        unicornio_activo[i] = culling2d(unicornio_x[i], unicornio_y[i])
+        
+        // Actualización de dirección
+        if (unicornio_vx[i] !== 0) {
+            unicornio_direccion[i] = m.sign(unicornio_vx[i]);
+        }
+
+
+
+
+        unicornioMaqEstados(i);
+        actualizarColisionesUnicornio(i);
+        unicornioIA(i);
+
+
+
+//ESTELA DE UNICORNIO
+if (unicornio_tipo[i] === UNICORNIO_ARCOIRIS || unicornio_tiempoVelocidad[i] > 0) {
+    
+  invocarEstelaArcoiris(( unicornio_x[i] + ((2*4)*unicornio_direccion[i]) ),
+  
+  unicornio_y[i] - rMinMax(2*4, 14*4)
+          )
+    
+    /*
+    for (let p = 0; p < 12; p++) {
+        let color = coloresArcoiris[m.floor(m.random() * coloresArcoiris.length)];
+        particulasCrear(
+          
+          
+           ( unicornio_x[i] + ((2*4)*unicornio_direccion[i]) )+ (m.random() * 2 - 1),
+          
+          
+            unicornio_y[i] ,//+ rMinMax(-14*4, -2*4),
+          
+         
+          
+          
+         (m.random() - 0.5) * 0.5,//  -unicornio_direccion[i] * rMinMax(2, 4),
+           
+            (m.random() - 0.5) * 0.5,
+            color,
+            5 + m.random() * 30
+            
+        );
+    }
+*/
+    
+}
+
+
+        // Eliminación segura swap-remove
+        if (unicornio_vida[i] <= 0) repSonido(SONIDO_MUERTE),eliminarUnicornio(i),JUEGO.puntos+=1,i--;
+        
+    }
+}
+
+//RENDERIZADO
+
+function unicornioRender(i) {
+    if (unicornio_activo[i])
+{
+   const flipX = unicornio_direccion[i] !== 1 ? 1 : 0;
+
+// Redondeo solo al renderizar para mantener movimiento subpíxel fluido
+const x = m.round(unicornio_x[i]) + unicornio_desfaceX[i];
+const y = m.round(unicornio_y[i]) + unicornio_desfaceY[i];
+
+let altoImagen = unicornio_enAgua[i] ? 12: 14
+
+// Cuerpo
+dibujarSprite(
+    atlas.unicornio,
+    x, y,
+14*4, altoImagen*4,
+    unicornio_angulo[i],
+    0.3, 1,
+    0,0,14,altoImagen, flipX
+);
+
+// Pelo 
+if(unicornio_tipo[i] === UNICORNIO_ARCOIRIS) dibujarSprite(
+    atlas.peloArcoiris,
+    x, y,
+14*4, altoImagen*4,
+    unicornio_angulo[i],
+    0.5, 1,
+    0,0,14,altoImagen, flipX
+);
+else dibujarSprite(
+    atlas.peloBlanco,
+    x, y,
+14*4, altoImagen*4,
+    unicornio_angulo[i],
+    0.5, 1,
+    0,0,14,altoImagen, flipX, coloresArcoiris[unicornio_color[i]]
+);
+
+/*
+ctx.fillStyle='#0ff'
+ctx.fillRect(x-1,y-1,2,2)
+*/
+
+//alfa()
+
+//unicornioBarraVida(i, x, y); 
+}
+
+}
+
+/*
+function unicornioBarraVida(i, x, y) {
+    ctx.fillStyle = '#900';
+    let tamX = (unicornio_vida[i] / unicornio_vidaMax[i]) * 60;
+    ctx.fillText(tamX.toString(), x, y - 80);
+    ctx.fillRect(x - 30, y - 60, tamX, 4);
+}
+*/
+
+
+function unicornioMarcador(i) {
+    if (!unicornio_activo[i]) {
+    encapsulado(()=>{
+            // 1. Obtener el tamaño visible de la pantalla según el zoom (corregido ancho/alto)
+    const anchoPantalla = ANCHO / camaraZ;
+    const altoPantalla = ALTO / camaraZ;
+    
+    // Calcular los bordes visibles del mundo (dónde empieza y termina lo que ve la cámara)
+    const camBordeIzquierdo = camaraX - (anchoPantalla / 2);
+    const camBordeSuperior = camaraY - (altoPantalla / 2);
+    
+    let pantallaX = unicornio_x[i] - camBordeIzquierdo;
+    let pantallaY = unicornio_y[i] - camBordeSuperior;
+    
+    
+    const tamañoMarcador = 20;
+    
+    
+    let marcadorX = limitMinMax(pantallaX, 8, anchoPantalla - tamañoMarcador +8);
+    let marcadorY = limitMinMax(pantallaY, 40, altoPantalla - tamañoMarcador +8 );
+    
+    let angulo = mirarHacia(jugador_x, jugador_y, unicornio_x[i], unicornio_y[i])
+    
+    _rotTrasCtx(camBordeIzquierdo, camBordeSuperior);
+    
+    let imagen = 'marcador' + unicornio_tipo[i]
+    
+    dibujarSprite(
+        atlas[imagen],
+        marcadorX, marcadorY, tamañoMarcador, tamañoMarcador,graArad(90)+angulo
+    )
+    
+    })
+    }
+}
+
+function unicornioSombra(i) {
+    
+    
+      const x = m.round(unicornio_x[i]) + unicornio_desfaceX[i];
+const y = m.round(unicornio_y[i]) + (unicornio_estado[i] != ESTADO_ATACANDO ? 0 : unicornio_desfaceY[i])
+
+const mult = (unicornio_enAgua[i]? 4.5:4)
+
+dibujarSprite(
+    atlas.sombra,
+    x, y,
+    3 * mult, 13 * mult,
+    graArad(90),
+    .5, .5
+);  
+    
+    
+    
+}
+
+
+/* --- Archivo: jugador.js --- */
+//*********************************************
+// JUGADOR
+//*********************************************
+let jugador_tick = 0
+let jugador_x = 0
+let jugador_y = 0
+let jugador_radio = 3*4
+
+let jugador_alfa = 1
+
+let jugador_vx = 0
+let jugador_vy = 0
+let jugador_velocidad = 5
+let jugador_direccion = 1
+
+let jugador_arma = 0
+let jugador_anguloArma = 0
+
+
+let jugador_Frame = 0
+let jugador_FrameTiempo = 0
+
+
+let jugador_vida = 100
+
+let jugador_relojInactividad = 999
+
+let jugador_miraX = 0
+let jugador_miraY = 0
+let jugador_puntoDisparoX = 0
+let jugador_puntoDisparoY = 0
+ let jugador_enAgua = false
+
+let jugador_muerto = false
+
+const datosJugador = f32Array(5) // Buffer estático reutilizable para colicion
+datosJugador[2] = jugador_radio //RADIO DATO ESTATICO
+
+//ANIMACION DE DISPARO VARIABLE DE GRADOS (0.3)
+let jugador_gDisparo  = 0
+
+
+
+function JugadorActualizarColisiones() {
+    
+    // Colisión JUGADOR - PROYECTIL
+    for (let i = 0; i < numProyectiles; i++) {
+        
+        if(proyectil_tipo[i]) {
+          datosProyectil[0] = proyectil_x[i];
+datosProyectil[1] = proyectil_y[i];
+datosProyectil[2] = proyectil_radio[i];
+
+if (colision(datosJugador, datosProyectil, RESPUESTA_COLISION)) {
+    jugadorDaño();
+    eliminarProyectil(i);
+    i--;
+}  
+        }
+        
+        
+    }
+}
+
+jugador_regenerarTiempo = 0
+
+function jugadorRegenerar() {
+  jugador_regenerarTiempo++
+  if(jugador_regenerarTiempo>120 && jugador_vida<100) {
+
+for (let i = 0; i < numArboles; i++) {
+  if (!arbol_contaminado[i]) {
+    if (distCuadrada(jugador_x, jugador_y, arbol_x[i], arbol_y[i], 100)) {
+  
+  particulasCrear(
+    jugador_x + (m.random() - 0.5) * 20, jugador_y + (m.random() - 0.5) * 20 - 16,
+    (m.random() - 0.5) * 1.5,
+    -(m.random() * 2),
+    '#0f0',
+    20 + m.random() * 10,
+    2, TIPO_PARTICULA_FRENTE
+  )
+  
+  jugador_vida = limitMinMax(jugador_vida + 1, 0, 100)
+  
+  if (jugador_regenerarTiempo > 130) jugador_regenerarTiempo = 0
+  
+  
+  break
+  
+}
+  }
+  
+}
+
+}
+  
+}
+
+function jugadorCyclo() {
+  if(jugador_muerto) return
+jugadorRegenerar()
+
+jugador_x = m.round(jugador_x)
+jugador_y = m.round(jugador_y)
+
+JugadorActualizarColisiones() 
+
+
+
+jugador_tick+= deltaFijo //RELOJ INTERNO
+
+//console.log(jugador_tick)
+
+
+//FRAMES DEL ARMA
+if(jugador_gDisparo && jugador_tick>0.099) jugador_gDisparo=0;
+
+
+
+
+    //REDONDEO Y POSICION DE LA CAMARA
+
+//ACTUALIZA DATOS DE COLICION
+datosJugador[0] = jugador_x
+datosJugador[1] = jugador_y
+
+
+    
+  /*  
+     if (INPUT.axisX > 0 || INPUT.axisX < 0) this.anim = 'caminar'
+else this.anim ='quieto'
+*/
+
+
+
+// La velocidad se escala naturalmente por la inclinación del joystick (de 0.0 a 1.0)
+
+const retrasoAgua = jugador_enAgua ? .5 :1
+
+jugador_vx = INPUT.axisX * (jugador_velocidad*retrasoAgua);
+jugador_vy = INPUT.axisY * (jugador_velocidad*retrasoAgua);
+
+if (m.abs(jugador_vx>.25) && m.abs(jugador_vy>.25) ) {
+  jugador_vx *= 0.7071;
+  jugador_vy *= 0.7071;
+}
+
+jugador_x += jugador_vx;
+jugador_y += jugador_vy;
+
+
+// Si se mueve en diagonal, multiplicamos por 0.7071
+/*
+
+*/
+
+//jugador_x += 4
+    
+   
+    
+    let radianes = jugador_anguloArma
+if (INPUT.axisX>0||INPUT.axisX<0) radianes = m.atan2(INPUT.axisY, INPUT.axisX), jugador_relojInactividad=120;
+
+jugador_relojInactividad--
+if(jugador_relojInactividad<=0) camaraZoom(1.4)
+else camaraZoom(1)
+
+/*
+// Si está dentro del rango no permitido
+if (radianes > 0.5 && radianes < 2.5) {
+    // Calcula a qué extremo está más cerca
+    const distanciaA05 = m.abs(radianes - 0.5);
+    const distanciaA25 = m.abs(radianes - 2.5);
+
+    radianes = distanciaA05 < distanciaA25 ? 0.5 : 2.5;
+}
+*/
+
+
+
+jugador_anguloArma = radianes;
+
+
+//jugador_objetivo=false
+
+if(jugador_vx) jugador_direccion = m.sign(jugador_vx);
+
+if (jugador_vx !== 0) {
+  // Incrementar el temporizador del frame (mitad de velocidad si está en agua)
+  jugador_FrameTiempo += jugador_enAgua ? (0.25 / 60) : (1 / 60);
+
+  // Cambiar de frame cada 3/60 segundos
+  if (jugador_FrameTiempo > 3 / 60) {
+    // Si está en agua usa 4 frames, si está en tierra usa 8 frames
+    // (Sumar 2 avanza el sprite en el atlas según tu layout)
+    jugador_Frame = (jugador_Frame + 1) % (jugador_enAgua ? 2 : 4);
+    jugador_FrameTiempo = 0;
+  }
+} else {
+  // Estado Idle / Reposo
+  jugador_Frame = 0;
+  jugador_FrameTiempo = 0; // Se resetea para que al volver a caminar empiece el frame 0 completo
+}
+
+let obj = jugadorMarcadorObjetivos();
+
+
+let x = jugador_x
+let y = jugador_y - jugador_radio
+
+let desfaseX = INPUT.axisY > 0 ? -4 : 4
+
+jugador_puntoDisparoX = (x - (desfaseX * jugador_direccion)) + 30 * m.cos(jugador_anguloArma - jugador_gDisparo);
+jugador_puntoDisparoY = (y - 4) + 30 * m.sin(jugador_anguloArma - jugador_gDisparo);
+
+
+if(!obj) {
+  
+  jugador_miraX = x + 40 * 4 * m.cos(jugador_anguloArma);
+jugador_miraY = (y - 4) + 40 * 4 * m.sin(jugador_anguloArma);
+} 
+
+  }
+
+//let s = 0
+
+//RENDER Y GRAFICOS EXTRAS  
+function jugadorRender() {
+  if(jugador_muerto) return
+  alfa(jugador_alfa)
+  const flipX = jugador_direccion != 1 ? 1 : 0
+
+let x = jugador_x
+let y = jugador_y
+
+//DEF_DEBUG
+
+//END_DEF
+
+//JUGADOR
+//jugador_enAgua=1
+
+let altoImagen = jugador_enAgua ? 9: 10
+
+/*
+dibujarSprite(atlas.jugador[0], x, y, 8* 4, altoImagen * 4, 0, 0.5, 0.5, 0, 0, 8,altoImagen, flipX)
+*/
+
+
+
+//JUGADOR
+dibujarSprite(atlasImagen, x, y, 6* 4, altoImagen * 4, 0, 0.5, 1, atlasDatos.jugadorFramesX[jugador_Frame], 18,6,altoImagen, flipX)
+
+  //ARMA
+  
+  encapsulado(() => {
+    
+  
+ const anguloFinal = graArad(90) + jugador_anguloArma - jugador_gDisparo;
+
+const inclinacion = limitMinMax(jugador_anguloArma, -.6, .6) 
+
+let posY = jugador_arma !=0 ? 6*4: 4*4
+
+_rotTrasCtx(x , y-posY - (jugador_Frame/2), anguloFinal-inclinacion);
+
+ctx.transform(1, 0, -inclinacion, 1, 0, 0);
+
+if (flipX) ctx.scale(-1, 1);
+
+let imagen = jugador_arma !=0 ? 'desconraminador':'escopeta'
+
+ctx.drawImage(
+  atlas[imagen],
+  0, 0, 4, 10,
+  (-(4 * 4) * 0.4), (-10 * 4 * 0.7), (4 * 4), (10 * 4)
+);
+
+});
+  
+  
+  
+/*  
+  switch (jugador_arma) {
+    case 1:// HACAH
+      dibujarSprite(atlas.arma, x, y,
+  6 * 4, 12 * 4,
+  graArad(90) + jugador_anguloArma - jugador_gDisparo,
+  
+  0.4, .7, 0, 0, 6, 12, flipX)
+  
+      break;
+    
+    case 2: // SPRAY
+  dibujarSprite(atlas.arma, x, y,
+    6 * 4, 12 * 4,
+    graArad(90) + jugador_anguloArma - jugador_gDisparo,
+    
+    0.4, .7, 0, 0, 6, 12, flipX)
+
+break;
+    
+    default: // ESCOPETA
+    
+   
+    
+    dibujarSprite(atlas.escopeta, x,y- (jugador_Frame/2),
+  6 * 4, 12 * 4,
+  graArad(90) + jugador_anguloArma - jugador_gDisparo,
+  
+  0.4, .7, 0, 0, 6, 12, flipX)
+  
+  
+  }
+  */
+  
+  
+  
+  
+/*  
+ if (jugador_gDisparo && jugador_arma==0) {
+   dibujarSprite(atlas.armaEffecto, x, y,
+  8 * 4, 8 * 4,
+ graArad(90) + jugador_anguloArma - jugador_gDisparo,
+  
+  .5, 1.8, 0, 0, 8, 8)
+ }
+ */
+ 
+  /*
+  ctx.save()
+  if(flipX)ctx.scale(flipX,flipX)
+  dibujarSprite(img4, x + ((1 * jugador_direccion)), y,
+    16 * 4, 8 * 4,
+    graArad(0) + jugador_anguloArma,
+    
+    0.4, .7, ...atlas.armas[jugador_armaFrame])
+  ctx.restore()
+  */
+  
+  
+ 
+/*    
+    ctx.fillStyle='#fff'
+ctx.fillRect(jugador_puntoDisparoX-2,jugador_puntoDisparoY-2,4,4)
+
+ctx.fillRect(jugador_x,jugador_y,2,2)
+
+
+ctx.beginPath()
+ctx.arc(jugador_x,jugador_y,jugador_radio,0,180)
+ctx.stroke()
+*/
+
+alfa(jugador_alfa)
+}
+
+function jugadorMira() {
+  
+    if(!jugador_muerto&&jugador_arma!=1) {
+     //MIRA
+  dibujarSprite(atlas.mira, jugador_miraX, jugador_miraY,
+    
+    9 * 6, 9 * 6,
+    
+    0, .5, .5) 
+  }
+
+  
+  
+  
+}
+
+function jugadorSombra() {
+  if(jugador_muerto) return
+
+
+alfa(jugador_alfa-.5)
+
+//efectoOnda(x,y,2,'#0ff')
+
+const escala = (jugador_enAgua ? 3: 2.5)
+let altoImagen = jugador_enAgua ? 2:0
+
+dibujarSprite(
+  atlas.sombra,
+  jugador_x, jugador_y-altoImagen,
+  3 * escala, 16 * escala,graArad(90),
+  .5,
+  .5,
+);
+
+alfa(.5)  
+}
+
+
+//jugadorAccion = 0
+
+//ACCIONES DEL JUGADOR
+function jugadorMarcadorObjetivos() {
+  if(jugador_arma!=0) return false
+  for (let i = 0; i < numUnicornios; i++) {
+    if (distCuadrada(jugador_x,jugador_y,unicornio_x[i],unicornio_y[i],300)){
+      
+   jugador_miraX = unicornio_x[i]
+   jugador_miraY = unicornio_y[i] 
+    
+  //  unicornio_apuntado[i] = true
+    
+    jugador_anguloArma = (mirarHacia(jugador_x, jugador_y, unicornio_x[i], unicornio_y[i]))
+    jugador_direccion = m.sign(unicornio_x[i] - jugador_x);
+
+     
+     return true
+    }//else unicornio_apuntado[i] = false
+      
+  }
+  
+    
+}
+
+function jugadorDisparo() {
+  if(jugador_muerto) return
+ switch (jugador_arma) {
+  
+  case 1: // SPRAY CURATIVO
+
+jugador_gDisparo = .6 * jugador_direccion
+jugador_tick = 0
+
+repSonido(SONIDO_DESCONTAMINADOR)
+
+efectoDescontaminacionJugador()
+
+
+
+
+for (let i = 0; i < 25; i++) {
+
+  let speed = 0.5 + m.random() * 2.5;
+  particulasCrear(
+    jugador_puntoDisparoX, jugador_puntoDisparoY,
+    m.cos(jugador_anguloArma) * speed,
+    m.sin(jugador_anguloArma) * speed,
+    '#6f6',
+    20 + m.random() * 20,
+    m.random() > 0.5 ? 2 : 1
+  );
+}
+
+for (let i = 0; i < numArboles; i++) {
+  if(arbol_contaminado[i] && distCuadrada(jugador_x,jugador_y,arbol_x[i],arbol_y[i],200)) {
+    arbolDescontaminar(i)
+  }
+}
+  
+  
+  
+  
+  for (let i = 0; i < numAgua; i++) {
+  if(agua_contaminada[i] && distCuadrada(jugador_x,jugador_y,agua_x[i],agua_y[i],200)) {
+    agua_contaminada[i] = 0
+    
+efectoDescontaminacion(agua_x[i],agua_y[i])
+    
+  }
+}
+  
+  break
+  
+  default: // ESCOPETA
+
+ 
+
+for (let open = 0; open < 5; open++) {
+  
+  ParticulasEscopeta(jugador_puntoDisparoX, jugador_puntoDisparoY,jugador_anguloArma) 
+
+}
+
+jugador_gDisparo = .3 * jugador_direccion
+jugador_tick = 0
+
+for (let p = -1; p < 2; p++) {
+  crearProyectil(jugador_puntoDisparoX, jugador_puntoDisparoY, jugador_anguloArma + (p * 0.05), 15,TIPO_PROYECTIL_JUGADOR)
+}
+
+repSonido(SONIDO_ESCOPETA)
+
+  
+ }
+}
+
+function jugadorCambiarArma() {
+  if(jugador_muerto) return
+  jugador_arma = (jugador_arma + 1) % 2;
+}
+
+function jugadorDaño() {
+ jugador_vida = limitMinMax(jugador_vida-5,0,100)
+
+        for (let i = 0; i < 12; i++) {
+          particulasCrear(
+            jugador_x + (m.random() - 0.5) * 20, jugador_y + (m.random() - 0.5) * 20 - 16,
+            (m.random() - 0.5) * 1.5,
+            -(m.random() * 2),
+            '#f00',
+            20 + m.random() * 10,
+            2, TIPO_PARTICULA_FRENTE
+          )
+        }
+  
+}
+
+/* --- Archivo: globales.js --- */
+
+/* --- Archivo: principal.js --- */
+
+
+//UNICAS DEL JUEGO
+
+// Función de dibujo estática (fuera del loop para optimizar GC)
+/*
+const dibujarConSombra = (x, y, dibujo) => {
+  sombra = 1;
+  dibujoMat( dibujo, { x, y, rx:.6, sy: .5}); // Sombra aplastada en Y e inclinada suavemente
+  sombra = 0;
+  dibujoMat( dibujo, { x, y });              // Objeto original
+};
+*/
+
+
+
+
+// Arrancar el ciclo de juego
+
+// window.onload = inicioJuego()   
+
+// 1. Inicializar los 15 árboles una sola vez
+
+// Función de ruido rápida de 2D basada en trigonometría
+
+async function crearEscenario() {
+    
+  
+for (let i = 0; i < MAX_AGUA; i++) {
+    let x, y;
+    let valido = false;
+    let intentos = 0;
+    const MAX_INTENTOS = 100; // Seguridad para evitar congelar el juego si el mapa está lleno
+
+    // Intenta encontrar una posición libre
+    while (!valido && intentos < MAX_INTENTOS) {
+        x = rMinMax(0, LIMITE_MUNDO);
+        y = rMinMax(0, LIMITE_MUNDO);
+        
+        let colision = false;
+        for (let a = 0; a < numAgua; a++) {
+            if (distCuadrada(x, y, agua_x[a], agua_y[a], 120)) {
+                colision = true;
+                break; // Sale solo del bucle de colisión para intentar una nueva coordenada
+            }
+        }
+
+        if (!colision) {
+            valido = true;
+        }
+        intentos++;
+    }
+
+    // Si encontró espacio, genera el árbol (o arbusto según probabilidad)
+    if (valido) {
+        crearAgua(x, y)
+    }
+}
+
+
+
+    for (let i = 0; i < MAX_ARBOLES; i++) {
+    let x, y;
+    let valido = false;
+    let intentos = 0;
+    const MAX_INTENTOS = 100; // Seguridad para evitar congelar el juego si el mapa está lleno
+
+    // Intenta encontrar una posición libre
+    while (!valido && intentos < MAX_INTENTOS) {
+        x = rMinMax(0, LIMITE_MUNDO);
+        y = rMinMax(0, LIMITE_MUNDO);
+        
+        let colision = false;
+        for (let a = 0; a < numArboles; a++) {
+            if (distCuadrada(x, y, arbol_x[a], arbol_y[a], 60)) {
+                colision = true;
+                break; // Sale solo del bucle de colisión para intentar una nueva coordenada
+            }
+        }
+
+
+for (let a = 0; a < numArboles; a++) {
+            if (distCuadrada(x, y, agua_x[a], agua_y[a], 140)) {
+                colision = true;
+                break; // Sale solo del bucle de colisión para intentar una nueva coordenada
+            }
+        }
+
+
+
+        if (!colision) {
+            valido = true;
+        }
+        intentos++;
+    }
+
+    // Si encontró espacio, genera el árbol (o arbusto según probabilidad)
+    if (valido) {
+        if (m.random() > 0.4) {
+            crearArbol(x, y);
+        } else {
+crearArbol(x, y);
+        }
+    }
+}
+
+for (let i = 0; i < MAX_PASTO; i++) {
+    let x, y;
+
+    
+x = rMinMax(0, LIMITE_MUNDO);
+        y = rMinMax(0, LIMITE_MUNDO);
+        
+        crearPasto(x,y)
+}
+}
+
+let conteoDeOleadas = 0;
+let unicorniosOleada = 0;
+let tiempoEntreOleadas = 0
+// Tipos de unicornios: 0: Contaminador, 1: Melee, 2: Rango
+
+let distribuciónTipos = [0, 0, 0]; 
+
+function iniciarSiguienteOleada() {
+  // 1. Escalar total de enemigos por oleada
+  unicorniosOleada = 1 + (conteoDeOleadas * 2);
+  let restantes = unicorniosOleada;
+
+  // Resetear distribución
+  distribuciónTipos[0] = 0;
+  distribuciónTipos[1] = 0;
+  distribuciónTipos[2] = 0;
+
+  // 2. Repartición condicional por oleada
+  if (conteoDeOleadas < 2) {
+    // Oleada 1: Solo Tipo 0 (Contaminador)
+    distribuciónTipos[0] = restantes;
+
+  } else if (conteoDeOleadas < 3) {
+    // Oleadas 2 y 3: Tipo 0 y Tipo 1 (Melee)
+    distribuciónTipos[0] = (m.random() * (restantes - 1)) | 0 + 1;
+    distribuciónTipos[1] = restantes - distribuciónTipos[0];
+
+  } else {
+    // Oleada 4+: Los 3 tipos activos
+    distribuciónTipos[0] = (m.random() * (restantes - 2)) | 0 + 1;
+    restantes -= distribuciónTipos[0];
+
+    distribuciónTipos[1] = (m.random() * (restantes - 1)) | 0 + 1;
+    distribuciónTipos[2] = restantes - distribuciónTipos[1];
+  }
+
+  conteoDeOleadas++;
+}
+
+//iniciarSiguienteOleada()
+//tiempoEntreOleadas=0
+
+function invocarEnemigo() {
+  
+  for (let i = 0; i < 15; i++) {
+    if (numUnicornios >= 15 || unicorniosOleada <= 0) break;
+
+    // Seleccionar cuál tipo instanciar que aún tenga disponibles en la distribución
+    let tipoElegido = -1;
+    for (let t = 0; t < 3; t++) {
+      if (distribuciónTipos[t] > 0) {
+        tipoElegido = t;
+        distribuciónTipos[t]--;
+        break;
+      }
+    }
+
+    if (tipoElegido === -1) break;
+
+    let x = rMinMax(0, LIMITE_MUNDO);
+    let y = rMinMax(0, LIMITE_MUNDO);
+    
+    // Escalar la vida según la oleada
+    let vida = limitMinMax(rMinMax(50 * conteoDeOleadas, 100 * conteoDeOleadas), 0, 1200);
+
+    // Pasar el tipoElegido al constructor
+    crearUnicornio(x, y, vida, tipoElegido);
+
+    unicorniosOleada--;
+  }
+}
+
+function oleadasCyclo() {
+   if(!tutorial) {
+        invocarEnemigo()
+ if (unicorniosOleada < 1 && numUnicornios < 1)
+ {
+     tiempoEntreOleadas += 1 / 60
+     if (tiempoEntreOleadas > 5) {
+         iniciarSiguienteOleada()
+         tiempoEntreOleadas = 0
+     }
+ }
+   }
+}
+
+function cyclo(dt) {
+
+if(tutorial) tutorialCyclo()
+ 
+ 
+ 
+JUEGO.arbolesInfectados = arbol_contaminado.filter(Boolean).length;
+
+camaraCyclo()
+filtroCyclo()
+aguaCyclo()
+arbolCyclo()
+pastoCyclo()
+unicornioCyclo()
+proyectilCyclo()
+jugadorCyclo()  
+
+jugadorMuerte()
+ jugadorLimiteMapa()
+       
+particulasCyclo()
+  textosCyclo()  
+ 
+ 
+  // Ciclo de oleadas
+oleadasCyclo()
+ 
+    
+ 
+  
+
+//- la camara
+
+//ctx.translate(width / 2, height / 2);
+
+  
+}
+
+
+const JUEGO = {
+    puntos:0,puntuacionAlta:0,muerto:0,arbolesInfectados:0
+    
+}
+
+let jugador_tiempoMuerto = 0 
+  
+function jugadorLimiteMapa() {
+    if(!JUEGO.FinDelJuego) {
+        if (jugador_x > LIMITE_MUNDO || jugador_x < 0) filtroAnimacion(1)
+if (jugador_y > LIMITE_MUNDO || jugador_y < 0) filtroAnimacion(1)
+
+if (filtroAlfa >= 1) {
+    
+    if(jugador_x < 0 ) jugador_x += 300
+    if(jugador_x > LIMITE_MUNDO ) jugador_x -= 300
+    
+    if(jugador_y < 0 ) jugador_y += 300
+    if(jugador_y > LIMITE_MUNDO ) jugador_y -= 300
+    
+    filtroAnimacion(0)
+}
+    }
+ }   
+ 
+function jugadorMuerte() {
+   jugador_vida=jugador_vida|0
+   
+   if(jugador_vida<=0) {
+       
+   /*    if(!jugador_muerto) {
+           for (let i = 0; i < 12; i++) {
+    particulasCrear(
+        jugador_x + (m.random() - 0.5) * 20, jugador_y + (m.random() - 0.5) * 20 - 16,
+        (m.random() - 0.5) * 1.5,
+        -(m.random() * 2),
+        '#f00',
+        20 + m.random() * 10,
+        2, TIPO_PARTICULA_FRENTE
+    )
+}
+       }
+    */
+    
+    camaraZoom(1.4)
+    
+    jugador_alfa = limitMinMax(jugador_alfa-.1, 0, 1);
+    
+    jugador_tiempoMuerto++
+   if (jugador_tiempoMuerto > 10 && !jugador_muerto) jugador_muerto = true    ,repSonido(SONIDO_MUERTE);
+       
+       if (jugador_tiempoMuerto > 90 && !JUEGO.FinDelJuego) {
+     
+        filtroAnimacion(1)
+        JUEGO.FinDelJuego = true
+        textoTutorialAlfa = 0
+        
+    }
+    
+    if(jugador_tiempoMuerto>=240&&JUEGO.FinDelJuego&&jugador_muerto) reiniciarPartida()
+    
+   }
+    
+}
+
+function reiniciarPartida() {
+    
+   if(JUEGO.puntos>JUEGO.puntuacionAlta) JUEGO.puntuacionAlta = JUEGO.puntos
+    
+    guardarLocalStorage()
+    
+    unicorniosOleada= 0
+   conteoDeOleadas=0
+    tiempoEntreOleadas= 0
+jugador_vida = 100
+jugador_alfa=1
+jugador_muerto = false
+
+JUEGO.puntos=0
+
+ctxManchas.clearRect(0,0,LIMITE_MUNDO,LIMITE_MUNDO)
+
+for (let i = 0; i < numUnicornios; i++) {
+   eliminarUnicornio(i)
+   i--
+}
+
+for (let i = 0; i < numArboles; i++) {
+arbol_contaminado[i]=0
+}
+
+filtroAnimacion(0)
+camaraZoom(1)
+
+jugador_tiempoMuerto = 0
+JUEGO.FinDelJuego = false
+}
+
+// Uso: Generar un círculo de radio 16 (32x32 píxeles) de color rojo
+
+let textoTutorial = 0
+let timeTutorial = 5
+let textoTutorialAlfa = 0
+
+let textosTutorial = [
+   'Unicorn Hunter',
+    'Swipe your finger on the left side of the screen to move',
+  
+    'Press X to shoot',
+    
+    "Rainbow unicorns are polluting the forest. You must eliminate them",
+    
+    "Watch out! There are wild unicorns too", 
+  
+    "If you get hurt, get close to the trees to heal",
+    
+    "If they are polluted, you won't be able to heal",
+    
+    "Press Z to switch the equipped item",
+    
+    "The green weapon purifies trees in the area", 
+    
+    "Good luck surviving!",
+    
+    "For eternity"
+]
+
+let tutoUnicornioArcoiris = false
+let tutoUnicornioMele = false
+let tutoPausa = false
+function tutorialCyclo() {
+    if(textoTutorial===textosTutorial.length) tutorial = false
+    
+    if(!tutoPausa)timeTutorial -= textoTutorial===0? deltaFijo/2:deltaFijo
+  
+  
+  
+  if(textoTutorial === 4 && unicornio_vida[0]>0) tutoPausa=true,timeTutorial=4
+    
+    if(textoTutorial === 4 && unicornio_vida[0]<=0) tutoPausa=false
+    
+    
+  if(textoTutorial === 3 && numUnicornios<1&& !tutoUnicornioArcoiris)crearUnicornio(jugador_x+ rMinMax(50, 100) * (m.random() < .5 ? 1 : -1)
+  ,jugador_y+ rMinMax(50, 100) * (m.random() < .5 ? 1 : -1)
+  ,25,UNICORNIO_ARCOIRIS),tutoUnicornioArcoiris=true
+  
+  
+  
+  
+  if(textoTutorial === 5 && unicornio_vida[0]>0) tutoPausa=true,timeTutorial=4
+    
+    if(textoTutorial === 5 && unicornio_vida[0]<=0) tutoPausa=false
+    
+    
+  if(textoTutorial === 5 && numUnicornios<1&& !tutoUnicornioMele)crearUnicornio(jugador_x+ rMinMax(50, 100) * (m.random() < .5 ? 1 : -1)
+  ,jugador_y+ rMinMax(50, 100) * (m.random() < .5 ? 1 : -1)
+  ,50,UNICORNIO_MELE),tutoUnicornioMele=true
+
+
+
+  
+    if(timeTutorial<4) {
+             if (timeTutorial > 1 && timeTutorial < 4) {
+         textoTutorialAlfa = limitMinMax(textoTutorialAlfa + 1 / 60, 0, 1)
+     }
+     
+     if (timeTutorial < 1) {
+         textoTutorialAlfa = limitMinMax(textoTutorialAlfa - 1 / 60, 0, 1)
+     }
+    }
+    
+    
+}
+
+function tutorialRender() {
+ 
+if(timeTutorial<4) {
+        
+      let  escala = textoTutorial===0?4:textoTutorial>9?2:1
+      let color = (textoTutorial===4||textoTutorial===10) ? '#f00':'#fff'
+        
+      alfa(textoTutorialAlfa)
+      dibujarTextoBitmap(textosTutorial[textoTutorial], ANCHO/2, (textoTutorial===0?100:ALTO-180),escala,color);
+      alfa()
+    
+     
+      
+   if(timeTutorial<0) {
+       textoTutorial++
+       timeTutorial=4
+   }
+   
+  }
+   
+}
+
+function postRender(ctx) {
+    ctx.resetTransform()
+    filtroRender()
+
+
+
+if(tutorial) tutorialRender()
+
+
+
+
+//LUVIA
+let color = JUEGO.arbolesInfectados>=300 ? coloresArcoiris[rMinMax(0,6)|0] : '#5ee6aaaa'
+for (var i = 0; i < ANCHO*2; i+=48) {
+
+particulasCrear(
+    camaraX - (ANCHO/2) + i, camaraY - (ALTO/2),
+    -rMinMax(1, 4),
+    
+    rMinMax(1, 30),
+    
+color, //'#5ee6aa'
+    200,
+    .5, TIPO_PARTICULA_LLUVIA
+  )
+  
+  
+}
+
+/*
+if(m.random()>.4) efectoOnda(
+    jugador_x + rMinMax(-ANCHO/2,ANCHO/2), 
+  jugador_y + rMinMax(-ALTO/2,ALTO/2), 
+  .3,color)//'#fff9')
+  
+*/ 
+ 
+//FIN LLUVIA
+
+
+
+  // Definir el centro
+const centroX = ANCHO / 2;
+const centroY = ALTO / 2;
+
+// Definir los radios (radioInicial, radioFinal)
+const radioInicial = 0;
+const radioFinal = m.max(ANCHO, ALTO) / 2 
+
+// Crear el gradiente radial centrado
+let grada = ctx.createRadialGradient(
+  centroX, centroY, radioInicial,
+  centroX, centroY, radioFinal
+);
+
+// Agregar los colores
+
+
+grada.addColorStop(.8, 'transparent')
+
+//grada.addColorStop(.2, 'black')
+
+grada.addColorStop(1, '#0006')
+    
+    
+    ctx.fillStyle = grada
+   ctx.fillRect(0,0,ANCHO,ALTO)
+   
+
+if (JUEGO.FinDelJuego) {
+    DibujarTextoBitmap('YOU DIED!', ANCHO / 2, 200, 4);
+    
+    DibujarTextoBitmap(`score ${JUEGO.puntos}`, ANCHO / 2, 300, 1);
+    
+dibujarTextoBitmap(`high score ${JUEGO.puntuacionAlta}`, ANCHO / 2, 260, 1);
+
+    return
+}
+
+ctx.fillStyle = '#000'
+ctx.fillRect(0, 0, ANCHO, 30)
+
+
+dibujarTextoBitmap(`${jugador_vida}*`, 40 + 140, 10, 1);
+
+
+dibujarTextoBitmap(`score ${JUEGO.puntos}`, 300 + 140, 10, 1);
+
+//dibujarTextoBitmap(`max puntos ${JUEGO.puntuacionAlta}9999`, 460, 15,1);
+
+dibujarTextoBitmap(`high score ${JUEGO.puntuacionAlta}`, 440 + 140, 10, 1);
+
+
+dibujarTextoBitmap(`#${((JUEGO.arbolesInfectados/500)*100).toFixed(0)}%`, 220 + 140, 10, 1);
+
+
+let imagen = jugador_arma != 0 ? 'desconraminador' : 'escopeta'
+
+
+
+dibujarSprite(atlas[imagen], 140 + 140, 15, 4 * 4, 10 * 4, graArad(90), .5, .5)
+    
+}
+
+function render(ctx) {
+
+let limite = LIMITE_MUNDO + 800
+ctx.fillStyle = '#71803d'
+ctx.fillRect(-400,-200,limite,limite)
+
+// ctx.drawImage(canvasManchas,-limite,-limite)
+
+ctx.drawImage(canvasManchas,0,0)
+
+//crearTileMap()
+
+
+aguaRender()
+
+//=======
+
+/*
+  //SOMBRAS
+  alfa(0.4)
+  for (let i = 0; i < numArboles; i++) {
+    arbolSombra(i)
+  }
+  for (let i = 0; i < numUnicornios; i++) {
+    unicornioSombra(i)
+}
+ alfa(1) 
+*/
+
+  // --- RENDERIZAR TODO ---
+  renderizarTodo(ctx); 
+  
+  textoRender()
+  
+  jugadorMira()
+  
+
+reiniciarListaRender();
+  // --- REGISTRO RENDER CON ORDEN POR Y ---
+  
+//Registrar Jugador
+registrarRender(TIPO_JUGADOR, 0, jugador_y);
+
+// Registrar Árboles
+for (let i = 0; i < numArboles; i++) {
+    registrarRender(TIPO_ARBOL, i, arbol_y[i]);
+}
+
+// Registrar Pasto
+for (let i = 0; i < numPasto; i++) {
+    registrarRender(TIPO_PASTO, i, pasto_y[i]);
+}
+
+// Registrar Unicornios
+for (let i = 0; i < numUnicornios; i++) {
+    registrarRender(TIPO_UNICORNIO, i, unicornio_y[i]);
+    
+    unicornioMarcador(i)
+}
+
+// Registrat Proyectiles
+for (let i = 0; i < numProyectiles; i++) {
+    registrarRender(TIPO_PROYECTIL,i,proyectil_y[i])
+}
+
+// Registrar Particulas
+for (let i = 0; i < numParticulas; i++) {
+let zIndice = particulas_tipo[i] != TIPO_PARTICULA_PIXEL ? (
+    particulas_tipo[i] != TIPO_PARTICULA_ONDA ? 9999 : -9999
+): particulas_y[i]
+
+
+
+
+
+    registrarRender(TIPO_PARTICULA, i, zIndice)
+}
+
+/*
+// Registrar Textos
+for (let i = 0; i < numTextos; i++) {
+   // registrarRender(TIPO_TEXTO, i, textos_y[i])
+}
+*/
+
+ // jugador_x = 0
+ // jugador_y = 0
+ 
+  
+// Actualizar y renderizar
+
+/*
+  
+  
+  uiPuntuacion.innerText = `FPS::`+getFps();
+  uiPuntuacion.innerText +='\n'
+  uiPuntuacion.innerText += `X:`+m.floor(jugador_x )+'-Y:'+m.floor(jugador_y);
+  
+  uiPuntuacion.innerText += '\n' + 'JugadorVy:' + String(jugador_vy.toFixed(4))
+  
+    uiPuntuacion.innerText += '\n' + 'particulas:' + String(4)
+
+uiPuntuacion.innerText += '\n'
+uiPuntuacion.innerText += `DIRECCION ARMA:${jugador_anguloArma.toFixed(4)}`
+uiPuntuacion.innerText += '\n'
+  
+  let entidadesActivas = []
+  
+  let activos = render_order.subarray(0, numEntidadesRender);
+  
+  
+  uiPuntuacion.innerText += `ENTIDADES TOTALES:${numEntidadesRender}`
+  uiPuntuacion.innerText += '\n'
+  uiPuntuacion.innerText += `ENTIDADES ACTIVAS:${entidadesActivas.length}`
+  
+  
+  uiPuntuacion.innerText += '\n'
+
+  
+  
+
+//path.render(camara2d,ctx)
+
+  */
+  
+
+    
+   
+}
+
+let atlasImagen = new Image()
+
+const atlasDatos = {
+  hojasArbol: [0, 0, 20, 21],
+  pasto: [0, 23, 2,4],
+  agua: [22, 0, 24, 16],
+  peloArcoiris: [48, 0, 14, 14],
+  peloBlanco: [48, 16, 14, 14],
+  unicornio: [48, 32, 14, 14],
+  sombra: [48, 48, 3, 13],
+  jugadorFramesX: [22,28,34,40],
+  escopeta: [53, 48, 4, 10],
+  desconraminador: [41, 50, 5, 9],
+  sombraArbol: [1, 41, 14, 8],
+  mira: [0, 52, 9, 9],
+  baseArbol: [22, 34, 8, 4],
+  baseArbol2: [22, 30, 8, 5],
+  troncoArbol: [11, 52, 4, 6],
+  onda: [19,50,17,11],
+  pasto0: [1,23,1,3],
+  pasto1: [4,23,2,3],
+  pasto2: [8,23,4,3],
+  pasto3: [0,28,4,6],
+  pasto4: [5,28,3,3],
+  pasto5: [9,28,3,5],
+  pastoSombra: [12,24,4,3],
+  marcador0: [17,40,8,8],
+  marcador1: [27,40,8,8],
+  marcador2: [37,40,8,8]
+};
+
+let atlas = {}
+
+
+async function cargarRecursos() {
+    // 1. Promesa para img (armas, jugador, unicornio)
+    const assetsCarga = new Promise((resolve) => {
+        atlasImagen.onload = () => {
+            
+for (let key in atlasDatos) {
+  const [x, y, ancho, alto] = atlasDatos[key];
+
+  // Si jugadorFramesX tiene 4 valores X, deberás tratarlo por separado 
+  // o verificar si la propiedad es un frame único o un arreglo de posiciones.
+  if(key === 'jugadorFramesX') continue
+
+  atlas[key] = crearImagen(ancho, alto, (ctx) => {
+     ctx.drawImage(atlasImagen, x, y, ancho, alto , 0, 0, ancho, alto);
+  });
+  
+  atlas[key].id = key
+}
+
+
+//colores arboles
+let tmpArcoirisGrad = []
+for (let i = 0; i < coloresArcoiris.length; i++) {
+    
+    let pos = .17 * i
+    
+    let color = coloresArcoiris[i]
+    
+    tmpArcoirisGrad.push(pos, color);
+}
+
+
+
+
+atlas.arbolColor = [
+    gradienteLineal(6, 0, 16, 21, [0, 'yellow', .9, 'red']),
+    gradienteLineal(6, 0, 16, 21, [0, 'yellow', 0.6, 'green']),
+    gradienteLineal(6, 0, 16, 21, [0.2, '#a00', 1, '#830']),
+    gradienteLineal(6, 2, 16, 21, tmpArcoirisGrad)
+]
+
+atlas.aguaColor = [
+    '#2287c3',
+   gradienteLineal(4, 4, 22, 16, tmpArcoirisGrad) 
+]
+
+          
+            resolve(); // Notifica que img y sus sprites terminaron
+        };
+        atlasImagen.src = 'a.png'
+    });
+
+
+    await Promise.all([assetsCarga]);
+
+    return true; // Retorna true ÚNICAMENTE cuando todo ha finalizado
+}
+
+let tutorial = true
+
+
+let canvasManchas, ctxManchas
+
+window.onload = async () => {
+   await EngineName()
+
+
+ canvasManchas = crearCanvas(LIMITE_MUNDO,LIMITE_MUNDO)
+ ctxManchas = contexto(canvasManchas)
+
+
+  cargarLocalStorage()  
+filtroAlfa=1
+jugador_x = LIMITE_MUNDO/2
+jugador_y = LIMITE_MUNDO/2
+
+INPUT.onActionZ = () => jugadorCambiarArma()
+INPUT.onActionX = () => jugadorDisparo()
+
+
+camaraAsignar(jugador_x,jugador_y,2)
+
+filtroAnimacion(0)
+
+iniciarAudio()   
+let recursos = await cargarRecursos()
+
+if(!recursos) return
+inicializarMapeoAgua(atlas.agua)
+await crearEscenario()
+
+correr(cyclo, render,postRender)
+iniciarMusica(MELODIA,BATERIA)
+}
+
+
+//FILTRO NEGRO
+
+let filtroAlfa = 0
+let filtroAlfaObjetivo = 0
+
+function filtroAnimacion(n) {
+   filtroAlfaObjetivo = n
+}
+function filtroCyclo() {
+   filtroAlfa += limitMinMax(filtroAlfaObjetivo - filtroAlfa, -.8/60, .8/60); 
+}
+
+function filtroRender() {
+    
+    if(filtroAlfa>0) {
+    
+      alfa(filtroAlfa)
+
+ctx.fillStyle = '#000'
+ctx.fillRect(-ANCHO / 2, -ALTO / 2, ANCHO * 2, ALTO * 2)
+alfa(1)  
+    }
+}
+
+
+
+</script>
